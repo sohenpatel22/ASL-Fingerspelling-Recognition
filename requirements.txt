@@ -1,0 +1,6 @@
+torch
+gradio==6.10.0
+mediapipe==0.10.21
+opencv-python-headless
+numpy
+gtts

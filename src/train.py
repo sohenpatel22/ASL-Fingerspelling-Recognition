@@ -8,7 +8,6 @@ This module handles:
 - Learning rate scheduling
 - Curriculum learning coordination
 
-Author: ASL Recognition Team
 """
 
 import torch

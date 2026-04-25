@@ -308,7 +308,7 @@ During inference:
 The full team project report is available in:
 
 ```text
-reports/Team12_Final_Report
+reports/Final_Report.ipynb
 ```
 
 The report includes:
@@ -348,19 +348,6 @@ Possible improvements include:
 * larger-scale training on more diverse signers
 * extending from fingerspelling to full ASL phrase recognition
 * adding text-to-speech output after prediction
-
----
-
-## Team Project Note
-
-This project was originally developed as part of a team-based course project for MIE1517 Deep Learning at the University of Toronto.
-
-My contributions included:
-
-* model pipeline integration
-* preprocessing and feature pipeline support
-* inference and deployment logic
-* repository restructuring for portfolio presentation
 
 ---
 

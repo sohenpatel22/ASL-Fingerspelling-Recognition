@@ -7,7 +7,6 @@ This module contains:
 - Transformer-based alternative (fallback)
 - Loss functions and decoding utilities
 
-Author: ASL Recognition Team
 """
 
 import torch
@@ -22,10 +21,7 @@ from config import (
     START_IDX, EOS_IDX, PAD_IDX, VOCAB_SIZE=62
 )
 
-
-# ============================================================================
-# ISOLATED SIGNS CLASSIFIER (Pre-training)
-# ============================================================================
+# ISOLATED SIGNS CLASSIFIER (Pre-training
 
 class IsolatedSignsClassifier(nn.Module):
     """
@@ -95,10 +91,7 @@ class IsolatedSignsClassifier(nn.Module):
         
         return logits
 
-
-# ============================================================================
-# CNN-LSTM WITH ATTENTION (Primary Model)
-# ============================================================================
+# CNN-LSTM WITH ATTENTION (Primary Model
 
 class AttentionLayer(nn.Module):
     """Attention mechanism for temporal sequences."""
@@ -393,10 +386,7 @@ class CNNLSTMFingerSpeller(nn.Module):
         
         return predictions
 
-
-# ============================================================================
-# TRANSFORMER ALTERNATIVE (Fallback)
-# ============================================================================
+# TRANSFORMER ALTERNATIVE (Fallback
 
 class TransformerFingerSpeller(nn.Module):
     """
@@ -483,10 +473,7 @@ class TransformerFingerSpeller(nn.Module):
         
         return logits
 
-
-# ============================================================================
-# LOSS FUNCTIONS
-# ============================================================================
+# LOSS FUNCTION
 
 class HybridCTCCELoss(nn.Module):
     """

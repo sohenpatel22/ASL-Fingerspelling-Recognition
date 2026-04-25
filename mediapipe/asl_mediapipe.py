@@ -9,9 +9,7 @@ import mediapipe as mp
 from pathlib import Path
 from collections import deque
 
-# ─────────────────────────────────────────────
 # 1. CONFIG
-# ─────────────────────────────────────────────
 CHAR_MAP_PATH  = Path('character_to_prediction_index.json')
 MODEL_CKPT     = Path('asl_transformer_v5_best.pth')
 
@@ -31,9 +29,7 @@ LENGTH_PENALTY = 0.6
 DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 print(f'Device: {DEVICE}')
 
-# ─────────────────────────────────────────────
 # 2. VOCAB
-# ─────────────────────────────────────────────
 with open(CHAR_MAP_PATH) as f:
     char_to_idx = json.load(f)
 
@@ -47,9 +43,7 @@ VOCAB_SIZE = N_CLASSES + 3       # 62
 
 print(f'START={START_IDX}  EOS={EOS_IDX}  PAD={PAD_IDX}  VOCAB={VOCAB_SIZE}')
 
-# ─────────────────────────────────────────────
 # 3. MODEL
-# ─────────────────────────────────────────────
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, max_len=512, dropout=0.1):
         super().__init__()
@@ -152,9 +146,7 @@ class ASLTransformerSeq2Seq(nn.Module):
     def forward(self, x, tgt):
         return self.decoder(tgt, self.encoder(x))
 
-# ─────────────────────────────────────────────
 # 4. LOAD WEIGHTS
-# ─────────────────────────────────────────────
 model = ASLTransformerSeq2Seq().to(DEVICE)
 ckpt  = torch.load(MODEL_CKPT, map_location=DEVICE)
 state = ckpt.get('model_state_dict', ckpt)
@@ -162,9 +154,7 @@ model.load_state_dict(state)
 model.eval()
 print('**Model loaded**')
 
-# ─────────────────────────────────────────────
 # 5. PREPROCESSING
-# ─────────────────────────────────────────────
 def wrist_normalize(seq):
     """Matches training notebook exactly"""
     out = seq.copy()
@@ -211,9 +201,7 @@ def landmarks_to_array(left_hand, right_hand):
             row[63 + i] = lm.y
     return row
 
-# ─────────────────────────────────────────────
 # 6. BEAM SEARCH
-# ─────────────────────────────────────────────
 @torch.no_grad()
 def beam_search(frame_buffer):
     x      = prepare_sequence(frame_buffer)   # (1, 84, MAX_SEQ_LEN)
@@ -256,9 +244,7 @@ def beam_search(frame_buffer):
         result.append(idx_to_char.get(t, ''))
     return ''.join(result)
 
-# ─────────────────────────────────────────────
 # 7. MEDIAPIPE SETUP
-# ─────────────────────────────────────────────
 import urllib.request
 
 # Download the hand landmarker model if not present
@@ -312,9 +298,7 @@ def landmarks_to_array_new(left_hand, right_hand):
             row[63 + i] = lm.y
     return row
 
-# ─────────────────────────────────────────────
 # 8. MAIN LOOP
-# ─────────────────────────────────────────────
 cap          = cv2.VideoCapture(0)
 frame_buffer = deque(maxlen=MAX_SEQ_LEN)
 prediction   = ''
@@ -370,7 +354,7 @@ while cap.isOpened():
 
     cv2.imshow('ASL Fingerspelling', frame)
 
-# ── Key handling — AFTER waitKey ──
+# Key handling — AFTER waitKey
     key = cv2.waitKey(1) & 0xFF
     if key == ord('q'):
         break

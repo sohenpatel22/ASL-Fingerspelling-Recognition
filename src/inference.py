@@ -7,7 +7,6 @@ This module handles:
 - Batch prediction
 - Result formatting and export
 
-Author: ASL Recognition Team
 """
 
 import torch

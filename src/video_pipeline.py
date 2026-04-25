@@ -4,7 +4,6 @@ Video processing pipeline for ASL Fingerspelling Recognition.
 Converts video frames to MediaPipe hand landmarks using the same format
 as training data (84-dimensional vectors per frame).
 
-Author: ASL Recognition Team
 """
 
 import cv2

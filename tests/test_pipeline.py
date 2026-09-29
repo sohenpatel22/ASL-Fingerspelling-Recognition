@@ -217,3 +217,29 @@ def test_evaluate_dataset_reports_signer_stats(tiny_cfg, vocab, tiny_model):
     )
     assert res["n_samples"] == 10 and 0.0 <= res["cer"] and res["cer_ci95"][0] <= res["cer_ci95"][1]
     assert res["n_signers"] == 5 and len(res["examples"]) == 10
+
+
+def test_transfer_widens_the_input_conv_for_velocity_and_keeps_old_behaviour(tiny_cfg, vocab):
+    plain = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    tiny_cfg.model.velocity = True
+    wide = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    stats = transfer_weights(wide, plain.state_dict())
+    assert stats["skipped"] == 0 and stats["resized"] >= 1
+    old, new = plain.encoder.proj[0].weight, wide.encoder.proj[0].weight
+    torch.testing.assert_close(new[:, : old.shape[1]], old)
+    assert torch.count_nonzero(new[:, old.shape[1] :]) == 0  # velocity channels start silent
+
+
+def test_init_from_accepts_a_hub_path(tmp_path, monkeypatch, tiny_cfg, vocab, tiny_model):
+    from asl.checkpoint import fetch_hub_file, save_checkpoint
+
+    saved = save_checkpoint(tmp_path / "m.pth", tiny_model, tiny_cfg.model, vocab)
+    calls = {}
+
+    def fake_download(repo_id, filename):
+        calls.update(repo_id=repo_id, filename=filename)
+        return str(saved)
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
+    assert fetch_hub_file("hf:SohenP/asl-fingerspelling-conformer/asl_v5_best.pth") == saved
+    assert calls == {"repo_id": "SohenP/asl-fingerspelling-conformer", "filename": "asl_v5_best.pth"}

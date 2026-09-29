@@ -29,12 +29,26 @@ app = [
     "gtts>=2.5",
     "groq>=0.9",
 ]
-dev = ["pytest>=8", "ruff>=0.5", "pyarrow>=15"]
+serve = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "prometheus-client>=0.20",
+    "mediapipe==0.10.21",
+    "onnxruntime>=1.18",
+]
+mlops = ["mlflow>=3.0", "dvc>=3.50"]
+export = ["onnx>=1.16", "onnxruntime>=1.18", "onnxscript>=0.1"]
+dev = ["pytest>=8", "ruff>=0.5", "pyarrow>=15", "httpx>=0.27"]
 
 [project.scripts]
 asl-train = "asl.train:main"
 asl-eval = "asl.evaluate:main"
 asl-preprocess = "asl.data:main"
+asl-promote = "asl.tracking:main"
+asl-reference = "asl.monitoring:main"
+asl-export = "asl.export:main"
+asl-serve = "asl.serve:main"
 
 [tool.setuptools.packages.find]
 include = ["asl*"]

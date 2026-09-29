@@ -116,31 +116,34 @@ It then exports a PSI score per input feature (clip length, share of frames with
 hand, amount of motion) over a rolling window. `deploy/alerts.yml` has Prometheus alerts for
 drift, a high no-hands rate, slow inference and low confidence.
 
-### ONNX and int8
+### ONNX export
 
 ```bash
-asl-export --checkpoint checkpoints/v6/best.pth --out-dir onnx --config configs/default.yaml --benchmark 200
-ASL_ONNX_DIR=onnx ASL_ONNX_VARIANT=int8 asl-serve
+asl-export --checkpoint checkpoints/v5/asl_v5_best.pth --out-dir onnx --config configs/default.yaml --benchmark 200
+ASL_ONNX_DIR=onnx ASL_ONNX_VARIANT=fp32 asl-serve
 ```
 
 This exports the encoder and decoder separately (dynamic batch, frame count and sequence
-length), quantizes both to int8, and benchmarks torch vs onnx fp32 vs onnx int8 on latency, size
-and CER. The ONNX decoder matches PyTorch to about 1e-6 in tests.
+length), also makes an int8 copy, and benchmarks torch vs onnx fp32 vs onnx int8 on latency,
+size, CER (when there are labels) and how often the output text matches the torch model. The
+ONNX decoder matches PyTorch to about 1e-6 in tests.
 
-I haven't run this on the trained weights yet, since I don't have them locally. What I did
-measure, on a full-size model with random weights (so decoding always runs to the max length,
-which makes these worst-case latencies), 4 CPU threads on my laptop, rough numbers:
+Numbers on the real v5 weights, 40 noise clips (I don't have labelled test data locally, so this
+measures speed and agreement, not accuracy), 4 CPU threads on my laptop:
 
-| | median latency per clip | size |
-|---|---|---|
-| torch | ~1040 ms | 113 MB |
-| onnx fp32 | ~820 ms | 114 MB |
-| onnx int8 | ~230 ms | 39 MB |
+| | median latency per clip | size | same text as torch |
+|---|---|---|---|
+| torch | ~640 ms | 113 MB | - |
+| onnx fp32 | ~430 ms | 114 MB | 100% |
+| onnx int8 | ~465 ms | 39 MB | 65% |
 
-Beam search itself now runs all live beams in one decoder call instead of one call per beam,
-which took a clip from about 2.3 s to 0.94 s on that same model and gives identical output
-(there's a test against the original implementation). Whether int8 keeps CER on the real model is
-something I still need to check. On the toy model it did.
+So fp32 ONNX is about 1.5x faster than PyTorch with identical output, while int8 is 3x smaller
+but not faster here and changes the output on a third of these clips. I wouldn't ship int8
+without checking CER on real test data, so the service defaults to fp32.
+
+Separately, beam search runs all live beams in one decoder call instead of one call per beam.
+On the real weights that took a clip from about 1.4 s to 0.64 s, with identical output on every
+clip tried (there's also a test against the original implementation).
 
 ### Docker
 
@@ -161,6 +164,22 @@ Grafana comes up on port 3000 with a dashboard already provisioned.
 evaluation with a metric gate (fails if CER or exact match regress), an ONNX export, and then
 builds the Docker image and hits the running container. `release.yml` pushes the image to GHCR
 when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
+
+## Free deployment on Hugging Face Spaces
+
+The demo runs as a Gradio Space on the free CPU tier. The weights live in a Hugging Face model
+repo and the Space downloads them at startup, so nothing big goes in git.
+
+1. Upload the weights to a model repo (once): `hf upload <user>/asl-fingerspelling-conformer asl_v5_best.pth`
+   and set the Space variables `ASL_MODEL_REPO=<user>/asl-fingerspelling-conformer` and
+   `ASL_MODEL_FILE=asl_v5_best.pth`.
+2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space <user>/asl-fingerspelling`
+   (needs `HF_TOKEN` in the environment).
+3. For automatic deploys, add a repo variable `HF_SPACE` (`<user>/<space-name>`) and a repo secret
+   `HF_TOKEN` (a token with write access). `deploy-space.yml` then redeploys whenever `asl/` or
+   `app/` changes on `main`, and does nothing if `HF_SPACE` isn't set.
+
+Without `--push` the script only stages the files, which is a quick way to check what gets uploaded.
 
 ## Demo
 
@@ -194,7 +213,6 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- run the export benchmark on the real weights
 - better accuracy: CTC loss alongside attention, sequences longer than 64 frames, z and velocity
   features, an n-gram LM for rescoring
 - deploy the API somewhere public

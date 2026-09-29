@@ -17,16 +17,66 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Install (CPU torch keeps the job fast)
+      - name: Install
         run: |
           python -m pip install --upgrade pip
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[dev]"
+          pip install -e ".[dev,serve,mlops,export]"
       - name: Lint
         run: ruff check asl tests app scripts
-      - name: Unit tests
+      - name: Tests
         run: pytest
-      - name: End-to-end smoke training + evaluation on synthetic data
+      - name: Train on the toy dataset
+        run: >
+          asl-train --config configs/smoke.yaml train.epochs=12 train.lr=0.002 train.scheduler=none
+          data.synthetic_size=512 train.batch_size=32 train.out_dir=checkpoints/ci
+      - name: Evaluate
+        run: asl-eval --checkpoint checkpoints/ci/best.pth --config configs/smoke.yaml --out metrics/ci.json
+      - name: Metric gate
+        run: python scripts/check_metrics.py metrics/ci.json "cer<=0.35" "exact_match>=0.5"
+      - name: Export to ONNX
+        if: matrix.python-version == '3.12'
+        run: asl-export --checkpoint checkpoints/ci/best.pth --out-dir onnx
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.12'
+        with:
+          name: ci-model
+          path: |
+            checkpoints/ci/best.pth
+            onnx/
+            metrics/ci.json
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ci-model
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: asl-fingerspelling:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run the container and hit it
         run: |
-          asl-train --config configs/smoke.yaml train.epochs=2 train.out_dir=checkpoints/ci
-          asl-eval --checkpoint checkpoints/ci/best.pth --config configs/smoke.yaml --max-samples 16
+          docker run -d --name api -p 8000:8000 -v "$PWD/onnx:/models/onnx:ro" \
+            -e ASL_ONNX_DIR=/models/onnx asl-fingerspelling:ci
+          for i in $(seq 1 30); do curl -fs localhost:8000/health && break || sleep 2; done
+          python - <<'PY'
+          import json, random, urllib.request
+          rows = [[random.random() for _ in range(84)] for _ in range(30)]
+          req = urllib.request.Request("http://localhost:8000/predict/landmarks",
+                                       json.dumps({"landmarks": rows}).encode(),
+                                       {"Content-Type": "application/json"})
+          print(urllib.request.urlopen(req).read().decode())
+          PY
+          curl -fs localhost:8000/metrics | grep asl_requests_total
+      - name: Container logs
+        if: always()
+        run: docker logs api

@@ -1,5 +1,11 @@
 # ASL Fingerspelling Recognition
 
+[![CI](https://github.com/sohenpatel22/ASL-Fingerspelling-Recognition/actions/workflows/ci.yml/badge.svg)](https://github.com/sohenpatel22/ASL-Fingerspelling-Recognition/actions/workflows/ci.yml)
+[![Hugging Face Space](https://img.shields.io/badge/demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/SohenP/asl-fingerspelling)
+
+**Live demo:** https://huggingface.co/spaces/SohenP/asl-fingerspelling (record or upload a short
+fingerspelling clip; it runs the v5 model, test CER 0.44, on a free ZeroGPU Space)
+
 Turns a short video of ASL fingerspelling into text. MediaPipe pulls hand landmarks out of the
 video, a Conformer encoder + Transformer decoder reads them, and beam search produces the
 characters. There's a Gradio demo, a FastAPI service with monitoring, and the training side is
@@ -222,7 +228,7 @@ Dockerfile, docker-compose.yml
 
 - better accuracy: CTC loss alongside attention, sequences longer than 64 frames, z and velocity
   features, an n-gram LM for rescoring
-- deploy the API somewhere public
+- put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 
 ## Limitations
 

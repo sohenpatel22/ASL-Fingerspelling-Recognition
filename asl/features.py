@@ -33,9 +33,25 @@ def resample_or_pad(seq: np.ndarray, max_len: int) -> np.ndarray:
     return seq
 
 
-def to_model_input(seq: np.ndarray, max_len: int) -> np.ndarray:
+def add_velocity(seq: np.ndarray) -> np.ndarray:
+    # frame-to-frame differences appended as extra channels; the first frame gets zero velocity
+    vel = np.diff(seq, axis=0, prepend=seq[:1])
+    return np.concatenate([seq, vel], axis=1).astype(np.float32)
+
+
+def fit_length(seq: np.ndarray, max_len: int, velocity: bool = False) -> np.ndarray:
+    # subsample first, then take differences, so velocity is per model frame and the zero
+    # padding at the end doesn't create a fake spike
+    if len(seq) > max_len:
+        seq = seq[np.linspace(0, len(seq) - 1, max_len, dtype=int)]
+    if velocity:
+        seq = add_velocity(seq)
+    return resample_or_pad(seq, max_len)
+
+
+def to_model_input(seq: np.ndarray, max_len: int, velocity: bool = False) -> np.ndarray:
     seq = np.nan_to_num(np.asarray(seq, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
-    return resample_or_pad(wrist_normalize(seq), max_len).T.astype(np.float32)
+    return fit_length(wrist_normalize(seq), max_len, velocity).T.astype(np.float32)
 
 
 def hands_to_row(left_xy: np.ndarray | None, right_xy: np.ndarray | None) -> np.ndarray:

@@ -1,5 +1,6 @@
 import json
 
+import numpy as np
 import pytest
 
 pytest.importorskip("pyarrow")
@@ -78,3 +79,23 @@ def test_seeded_random_subset_covers_more_signers_than_the_first_rows(tiny_cfg, 
     rand_b = evaluate_dataset(*common, max_samples=10, sample_seed=1)
     assert first["n_signers"] == 1 and rand_a["n_signers"] > 1
     assert rand_a["cer"] == rand_b["cer"]
+
+
+def test_sequences_missing_from_disk_are_skipped_not_fatal(tmp_path, capsys):
+    import pandas as pd
+
+    from asl.config import ModelConfig
+    from asl.data import ASLDataset
+    from asl.vocab import Vocab
+
+    rng = np.random.default_rng(0)
+    for seq_id in (1, 2, 4):  # sequence 3 is in the metadata but has no file
+        np.save(tmp_path / f"{seq_id}.npy", rng.random((20, 84)).astype(np.float32))
+    df = pd.DataFrame(
+        {"sequence_id": [1, 2, 3, 4], "phrase": list("abcd"), "participant_id": [1, 1, 2, 2]}
+    )
+    ds = ASLDataset(df, tmp_path, Vocab(), ModelConfig(), augment_data=True)
+    assert len(ds) == 3 and list(ds.df.sequence_id) == [1, 2, 4]
+    assert "skipping 1 sequences" in capsys.readouterr().out
+    for i in range(len(ds)):
+        ds[i]  # every remaining row loads

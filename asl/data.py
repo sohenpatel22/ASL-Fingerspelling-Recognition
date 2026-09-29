@@ -66,8 +66,14 @@ class ASLDataset(Dataset):
         augment_data: bool = False,
         strong_augment: bool = False,
     ):
-        self.df = df.reset_index(drop=True)
         self.npy_dir = Path(npy_dir)
+        # a few sequences in the metadata never made it out of the parquet files; drop them up front
+        # instead of failing halfway through an epoch
+        on_disk = {int(f.stem) for f in self.npy_dir.glob("*.npy")}
+        keep = df["sequence_id"].astype(int).isin(on_disk)
+        if not keep.all():
+            print(f"{self.npy_dir.name}: skipping {int((~keep).sum())} sequences with no .npy file")
+        self.df = df[keep].reset_index(drop=True)
         self.vocab = vocab
         self.cfg = model_cfg
         self.augment = augment_data

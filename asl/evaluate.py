@@ -72,7 +72,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--split", choices=["val", "test"], default="test")
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--out", default=None, help="write metrics JSON here")
+    parser.add_argument("--out", default=None, help="write summary metrics json here")
+    parser.add_argument("--details-out", default=None, help="write per-signer cer and examples here")
     parser.add_argument("--allow-unsafe", action="store_true", help="trust legacy pickled ckpt")
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args(argv)
@@ -91,9 +92,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples")}
     print(json.dumps(summary, indent=2))
-    if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(json.dumps(result, indent=2))
+    for path, payload in ((args.out, summary), (args.details_out, result)):
+        if path:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+            Path(path).write_text(json.dumps(payload, indent=2))
 
 
 if __name__ == "__main__":

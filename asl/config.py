@@ -35,6 +35,7 @@ class DataConfig:
     npy_train: str = "data/processed/npy_train"
     npy_supp: str = "data/processed/npy_supp"
     use_supplemental: bool = True
+    augment: str = "basic"  # "strong" adds rotation, aspect jitter and missed-hand spans
     val_fraction: float = 0.15
     test_fraction: float = 0.15
     split_seed: int = 42

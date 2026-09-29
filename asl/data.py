@@ -47,12 +47,14 @@ class ASLDataset(Dataset):
         vocab: Vocab,
         model_cfg: ModelConfig,
         augment_data: bool = False,
+        strong_augment: bool = False,
     ):
         self.df = df.reset_index(drop=True)
         self.npy_dir = Path(npy_dir)
         self.vocab = vocab
         self.cfg = model_cfg
         self.augment = augment_data
+        self.strong = strong_augment
         self._rng: tuple[int, np.random.Generator] | None = None
 
     def __len__(self) -> int:
@@ -69,7 +71,7 @@ class ASLDataset(Dataset):
         row = self.df.iloc[i]
         seq = np.load(self.npy_dir / f"{row['sequence_id']}.npy").astype(np.float32)
         if self.augment:
-            seq = augment(seq, self._get_rng())
+            seq = augment(seq, self._get_rng(), self.strong)
         seq = fit_length(seq, self.cfg.max_seq_len, self.cfg.velocity)
         x = torch.from_numpy(np.ascontiguousarray(seq.T)).float()
         y = torch.tensor(
@@ -125,10 +127,11 @@ def build_datasets(cfg: Config, vocab: Vocab) -> dict[str, Dataset]:
     comp = Path(d.comp_dir)
     train_meta = pd.read_csv(comp / "train.csv")
     tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
-    train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, augment_data=True)]
+    aug = {"augment_data": True, "strong_augment": d.augment == "strong"}
+    train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, **aug)]
     if d.use_supplemental:
         supp = pd.read_csv(comp / "supplemental_metadata.csv")
-        train_parts.append(ASLDataset(supp, d.npy_supp, vocab, m, augment_data=True))
+        train_parts.append(ASLDataset(supp, d.npy_supp, vocab, m, **aug))
     return {
         "train": ConcatDataset(train_parts) if len(train_parts) > 1 else train_parts[0],
         "val": ASLDataset(va, d.npy_train, vocab, m),

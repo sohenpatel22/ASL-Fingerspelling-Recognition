@@ -6,7 +6,7 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
-from asl.checkpoint import DEFAULT_FILENAME, resolve_checkpoint
+from asl.checkpoint import resolve_checkpoint
 from asl.features import hands_to_row
 from asl.infer import Predictor
 
@@ -19,7 +19,7 @@ def main() -> None:
     parser.add_argument("--camera", type=int, default=0)
     args = parser.parse_args()
 
-    predictor = Predictor.from_checkpoint(resolve_checkpoint(args.checkpoint or DEFAULT_FILENAME))
+    predictor = Predictor.from_checkpoint(resolve_checkpoint(args.checkpoint))
     cap = cv2.VideoCapture(args.camera)
     frames: list[np.ndarray] = []
     recording, prediction = False, ""

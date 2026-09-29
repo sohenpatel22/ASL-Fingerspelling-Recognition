@@ -4,9 +4,9 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # serve the int8 onnx export; drop these two and set ASL_CHECKPOINT to use the torch model
+      # serve the onnx export; drop these two and set ASL_CHECKPOINT to use the torch model instead
       ASL_ONNX_DIR: /models/onnx
-      ASL_ONNX_VARIANT: int8
+      ASL_ONNX_VARIANT: fp32
       ASL_REFERENCE: /monitoring/reference.json
     volumes:
       - ./onnx:/models/onnx:ro

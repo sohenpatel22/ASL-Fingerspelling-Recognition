@@ -75,7 +75,7 @@ def load_default_predictor() -> tuple[Predictor, str]:
     if onnx_dir:
         from asl.export import load_onnx_predictor
 
-        variant = os.environ.get("ASL_ONNX_VARIANT", "int8")
+        variant = os.environ.get("ASL_ONNX_VARIANT", "fp32")
         version = os.environ.get("ASL_MODEL_VERSION") or f"onnx-{variant}"
         return load_onnx_predictor(onnx_dir, variant), version
     model_uri = os.environ.get("ASL_MODEL_URI")

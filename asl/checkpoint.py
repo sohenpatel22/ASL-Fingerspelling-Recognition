@@ -17,7 +17,7 @@ from asl.vocab import Vocab
 
 log = logging.getLogger(__name__)
 
-DEFAULT_REPO_ID = "sohenpatel22/asl-fingerspelling-conformer"
+DEFAULT_REPO_ID = "SohenP/asl-fingerspelling-conformer"
 DEFAULT_FILENAME = "asl_transformer_v6_final.pth"
 _ARCH_KEYS = {
     "feature_size": "feature_size",
@@ -97,11 +97,16 @@ def model_config_from_checkpoint(ckpt: dict[str, Any]) -> ModelConfig:
     return ModelConfig(**{k: v for k, v in cfg.items() if k in known})
 
 
+def _upgrade_keys(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    # the v5 notebook called the positional encoding "pos_enc", later versions "posenc"
+    return {k.replace(".pos_enc.", ".posenc."): v for k, v in state.items()}
+
+
 def load_checkpoint(
     path: str | Path, device: str | torch.device = "cpu", allow_unsafe: bool = False
 ) -> tuple[ASLConformerSeq2Seq, Vocab, dict[str, Any]]:
     ckpt = _torch_load(path, allow_unsafe)
-    state = ckpt.get("model_state_dict", ckpt)
+    state = _upgrade_keys(ckpt.get("model_state_dict", ckpt))
     vocab = Vocab(ckpt["char_to_idx"]) if "char_to_idx" in ckpt else Vocab()
     model_cfg = model_config_from_checkpoint(ckpt) if "model_state_dict" in ckpt else ModelConfig()
     model = ASLConformerSeq2Seq(model_cfg, vocab.vocab_size, vocab.pad_idx)
@@ -113,7 +118,7 @@ def load_checkpoint(
 
 def load_state_dict_only(path: str | Path, allow_unsafe: bool = False) -> dict[str, torch.Tensor]:
     ckpt = _torch_load(path, allow_unsafe)
-    return ckpt.get("model_state_dict", ckpt)
+    return _upgrade_keys(ckpt.get("model_state_dict", ckpt))
 
 
 def transfer_weights(model: ASLConformerSeq2Seq, state: dict[str, torch.Tensor]) -> dict[str, int]:
@@ -149,14 +154,16 @@ def convert_checkpoint(src: str | Path, dst: str | Path) -> Path:
 
 def resolve_checkpoint(
     path: str | Path | None = None,
-    repo_id: str = DEFAULT_REPO_ID,
-    filename: str = DEFAULT_FILENAME,
+    repo_id: str | None = None,
+    filename: str | None = None,
 ) -> Path:
-    for candidate in (path, os.environ.get("ASL_CHECKPOINT")):
+    filename = filename or os.environ.get("ASL_MODEL_FILE", DEFAULT_FILENAME)
+    for candidate in (path, os.environ.get("ASL_CHECKPOINT"), filename):
         if candidate and Path(candidate).exists():
             return Path(candidate)
     from huggingface_hub import hf_hub_download
 
+    repo_id = repo_id or os.environ.get("ASL_MODEL_REPO", DEFAULT_REPO_ID)
     return Path(hf_hub_download(repo_id=repo_id, filename=filename))
 
 

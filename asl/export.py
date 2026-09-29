@@ -127,20 +127,23 @@ def load_onnx_predictor(onnx_dir: str | Path, variant: str = "fp32", threads: in
     return Predictor(model, Vocab(meta["char_to_idx"]), cfg, decode_cfg)  # type: ignore[arg-type]
 
 
-def _time_predictor(predictor: Predictor, clips: list[np.ndarray], warmup: int = 3) -> dict[str, float]:
+def _time_predictor(
+    predictor: Predictor, clips: list[np.ndarray], warmup: int = 3
+) -> tuple[dict[str, float], list[str]]:
     for clip in clips[:warmup]:
         predictor.predict_landmarks(clip)
-    times = []
+    times, texts = [], []
     for clip in clips:
         t0 = time.perf_counter()
-        predictor.predict_landmarks(clip)
+        texts.append(predictor.predict_landmarks(clip).text)
         times.append((time.perf_counter() - t0) * 1000)
     times.sort()
-    return {
+    stats = {
         "latency_ms_p50": statistics.median(times),
         "latency_ms_p95": times[min(int(len(times) * 0.95), len(times) - 1)],
         "latency_ms_mean": statistics.fmean(times),
     }
+    return stats, texts
 
 
 def _cer(predictor: Predictor, dataset, vocab: Vocab, n: int) -> float:
@@ -169,8 +172,13 @@ def benchmark(
     # latency is measured on raw landmark clips, the same input the service receives
     clips = [dataset[i][0].T.numpy() for i in range(min(n, len(dataset)))]
     results = {}
+    torch_texts: list[str] = []
     for name, predictor in predictors.items():
-        row = _time_predictor(predictor, clips)
+        row, texts = _time_predictor(predictor, clips)
+        if name == "torch":
+            torch_texts = texts
+        same = [a == b for a, b in zip(texts, torch_texts, strict=True)]
+        row["agreement_with_torch"] = float(np.mean(same))
         row["cer"] = _cer(predictor, dataset, vocab, n)
         if name == "torch":
             row["size_mb"] = Path(checkpoint).stat().st_size / 1e6

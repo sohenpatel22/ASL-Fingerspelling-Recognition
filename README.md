@@ -116,31 +116,35 @@ It then exports a PSI score per input feature (clip length, share of frames with
 hand, amount of motion) over a rolling window. `deploy/alerts.yml` has Prometheus alerts for
 drift, a high no-hands rate, slow inference and low confidence.
 
-### ONNX and int8
+### ONNX export
 
 ```bash
-asl-export --checkpoint checkpoints/v6/best.pth --out-dir onnx --config configs/default.yaml --benchmark 200
-ASL_ONNX_DIR=onnx ASL_ONNX_VARIANT=int8 asl-serve
+asl-export --checkpoint checkpoints/v5/asl_v5_best.pth --out-dir onnx --config configs/default.yaml --benchmark 200
+ASL_ONNX_DIR=onnx ASL_ONNX_VARIANT=fp32 asl-serve
 ```
 
 This exports the encoder and decoder separately (dynamic batch, frame count and sequence
-length), quantizes both to int8, and benchmarks torch vs onnx fp32 vs onnx int8 on latency, size
-and CER. The ONNX decoder matches PyTorch to about 1e-6 in tests.
+length), also makes an int8 copy, and benchmarks torch vs onnx fp32 vs onnx int8 on latency,
+size, CER (when there are labels) and how often the output text matches the torch model. The
+ONNX decoder matches PyTorch to about 1e-6 in tests.
 
-I haven't run this on the trained weights yet, since I don't have them locally. What I did
-measure, on a full-size model with random weights (so decoding always runs to the max length,
-which makes these worst-case latencies), 4 CPU threads on my laptop, rough numbers:
+Numbers on the real v5 weights, 40 noise clips (I don't have labelled test data locally, so this
+measures speed and agreement, not accuracy), 4 CPU threads on my laptop:
 
-| | median latency per clip | size |
-|---|---|---|
-| torch | ~1040 ms | 113 MB |
-| onnx fp32 | ~820 ms | 114 MB |
-| onnx int8 | ~230 ms | 39 MB |
+| | median latency per clip | size | same text as torch |
+|---|---|---|---|
+| torch | ~660 ms | 113 MB | - |
+| onnx fp32 | ~410 ms | 114 MB | 100% |
+| onnx int8 (matmuls only) | ~370 ms | 47 MB | 80% |
 
-Beam search itself now runs all live beams in one decoder call instead of one call per beam,
-which took a clip from about 2.3 s to 0.94 s on that same model and gives identical output
-(there's a test against the original implementation). Whether int8 keeps CER on the real model is
-something I still need to check. On the toy model it did.
+So fp32 ONNX is about 1.6x faster than PyTorch with identical output. int8 is a bit faster again
+and 2.4x smaller, but it changes the output on one clip in five, so I wouldn't ship it without
+checking CER on real test data. The service defaults to fp32. (Quantizing the convolutions too
+made things worse: slower, less faithful, and older onnxruntime builds can't run them.)
+
+Separately, beam search runs all live beams in one decoder call instead of one call per beam.
+On the real weights that took a clip from about 1.4 s to 0.64 s, with identical output on every
+clip tried (there's also a test against the original implementation).
 
 ### Docker
 
@@ -162,6 +166,22 @@ evaluation with a metric gate (fails if CER or exact match regress), an ONNX exp
 builds the Docker image and hits the running container. `release.yml` pushes the image to GHCR
 when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
 
+## Free deployment on Hugging Face Spaces
+
+The demo runs as a Gradio Space on the free CPU tier. The weights live in a Hugging Face model
+repo and the Space downloads them at startup, so nothing big goes in git.
+
+1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer checkpoints/v5/asl_v5_best.pth asl_v5_best.pth`
+   and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
+   `SohenP/asl-fingerspelling-conformer`).
+2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
+   (uses `HF_TOKEN` if set, otherwise your `hf auth login` session).
+3. For automatic deploys, add a repo variable `HF_SPACE` (`SohenP/asl-fingerspelling`) and a repo secret
+   `HF_TOKEN` (a token with write access). `deploy-space.yml` then redeploys whenever `asl/` or
+   `app/` changes on `main`, and does nothing if `HF_SPACE` isn't set.
+
+Without `--push` the script only stages the files, which is a quick way to check what gets uploaded.
+
 ## Demo
 
 ```bash
@@ -170,7 +190,7 @@ python app/app.py
 ```
 
 Weights aren't in the repo. The app looks for `ASL_CHECKPOINT`, a local file, or the Hugging Face
-Hub (`sohenpatel22/asl-fingerspelling-conformer`), in that order. Checkpoints saved by the old
+Hub (`SohenP/asl-fingerspelling-conformer`), in that order. Checkpoints saved by the old
 notebooks have numpy scalars in them, so convert a trusted one first with
 `python -m asl.checkpoint convert old.pth new.pth`.
 
@@ -194,7 +214,6 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- run the export benchmark on the real weights
 - better accuracy: CTC loss alongside attention, sequences longer than 64 frames, z and velocity
   features, an n-gram LM for rescoring
 - deploy the API somewhere public

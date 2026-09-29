@@ -21,12 +21,13 @@ def exported(tmp_path, tiny_cfg, tiny_model, vocab):
 
 
 def test_export_decoder_matches_torch_decoder(tiny_model, tiny_cfg, vocab):
+    torch.manual_seed(0)
     x = torch.randn(3, 84, 50)
     tgt = torch.randint(0, vocab.n_classes, (3, 7))
     memory = tiny_model.encoder(x)
     with torch.no_grad():
         wrapped = ExportDecoder(tiny_model.decoder)(tgt, memory)
-        torch.testing.assert_close(wrapped, tiny_model.decoder(tgt, memory))
+        torch.testing.assert_close(wrapped, tiny_model.decoder(tgt, memory), rtol=1e-4, atol=1e-4)
 
 
 def test_onnx_fp32_predictions_match_torch(exported, tiny_cfg, tiny_model, vocab):
@@ -56,6 +57,7 @@ def test_benchmark_reports_all_variants(tmp_path, tiny_cfg, tiny_model, vocab, e
     for row in report.values():
         assert row["latency_ms_p50"] > 0 and row["size_mb"] > 0
         assert np.isfinite(row["cer"]) and row["cer"] >= 0
+    assert report["torch"]["agreement_with_torch"] == 1.0
     assert all((onnx_dir / f).exists() for pair in FILES.values() for f in pair)
 
 

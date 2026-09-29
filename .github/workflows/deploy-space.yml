@@ -1,0 +1,22 @@
+name: Deploy Space
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["asl/**", "app/**", "scripts/deploy_space.py"]
+
+jobs:
+  deploy:
+    # needs a repo variable HF_SPACE (user/name) and a repo secret HF_TOKEN (write access)
+    if: ${{ vars.HF_SPACE != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install huggingface_hub
+      - run: python scripts/deploy_space.py --push --space "${{ vars.HF_SPACE }}"
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}

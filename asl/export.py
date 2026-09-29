@@ -75,7 +75,10 @@ def export_onnx(
         from onnxruntime.quantization import QuantType, quantize_dynamic
 
         for src, dst in zip(FILES["fp32"], FILES["int8"], strict=True):
-            quantize_dynamic(str(out / src), str(out / dst), weight_type=QuantType.QInt8)
+            # matmuls only: int8 convolutions are slow on cpu and missing in older onnxruntime builds
+            quantize_dynamic(
+                str(out / src), str(out / dst), weight_type=QuantType.QInt8, op_types_to_quantize=["MatMul"]
+            )
         variants.append("int8")
 
     import dataclasses

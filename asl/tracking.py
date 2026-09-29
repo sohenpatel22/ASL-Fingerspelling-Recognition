@@ -91,12 +91,17 @@ def promote(uri: str, name: str, metrics_file: str, max_cer: float) -> bool:
 
 
 def download_model(uri: str, model_uri: str) -> Path:
+    # accepts models:/name@alias or models:/name/version
     import mlflow
 
-    mlflow.set_tracking_uri(uri)
-    local = mlflow.artifacts.download_artifacts(artifact_uri=model_uri)
-    path = Path(local)
-    return path if path.is_file() else next(path.glob("*.pth"))
+    client = mlflow.tracking.MlflowClient(tracking_uri=uri)
+    name, _, alias = model_uri.removeprefix("models:/").partition("@")
+    if alias:
+        version = client.get_model_version_by_alias(name, alias)
+    else:
+        name, _, number = name.partition("/")
+        version = client.get_model_version(name, number)
+    return Path(client.download_artifacts(version.run_id, "run/best.pth"))
 
 
 def main(argv: list[str] | None = None) -> None:

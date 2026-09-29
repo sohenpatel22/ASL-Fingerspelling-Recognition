@@ -1,0 +1,26 @@
+groups:
+  - name: asl
+    rules:
+      - alert: InputDrift
+        expr: max(asl_input_drift_psi) > 0.25
+        for: 10m
+        annotations:
+          summary: "input landmarks have drifted from the training data (PSI > 0.25)"
+
+      - alert: HighNoHandsRate
+        expr: rate(asl_no_hands_total[15m]) / rate(asl_requests_total{endpoint="/predict"}[15m]) > 0.3
+        for: 15m
+        annotations:
+          summary: "over 30% of uploaded videos have no detectable hands"
+
+      - alert: SlowInference
+        expr: histogram_quantile(0.95, rate(asl_inference_seconds_bucket[5m])) > 2
+        for: 10m
+        annotations:
+          summary: "p95 beam search time is above 2s"
+
+      - alert: LowConfidence
+        expr: histogram_quantile(0.5, rate(asl_prediction_confidence_bucket[30m])) < 0.4
+        for: 30m
+        annotations:
+          summary: "median prediction confidence has dropped below 0.4"

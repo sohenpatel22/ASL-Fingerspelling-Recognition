@@ -6,7 +6,7 @@ from functools import lru_cache
 
 import gradio as gr
 
-from asl.checkpoint import DEFAULT_FILENAME, resolve_checkpoint
+from asl.checkpoint import resolve_checkpoint
 from asl.infer import Predictor
 from asl.postprocess import MODES, enhance_text_with_llm
 from asl.video import NoHandsDetected
@@ -14,7 +14,7 @@ from asl.video import NoHandsDetected
 
 @lru_cache(maxsize=1)
 def get_predictor() -> Predictor:
-    path = resolve_checkpoint(DEFAULT_FILENAME)
+    path = resolve_checkpoint()
     return Predictor.from_checkpoint(path, device="cpu", allow_unsafe=False)
 
 

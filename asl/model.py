@@ -69,7 +69,7 @@ class ConformerEncoder(nn.Module):
     def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.proj = nn.Sequential(
-            nn.Conv1d(cfg.feature_size, cfg.d_model, kernel_size=3, padding=1),
+            nn.Conv1d(cfg.input_dim, cfg.d_model, kernel_size=3, padding=1),
             nn.BatchNorm1d(cfg.d_model),
             nn.ReLU(),
         )
@@ -118,9 +118,16 @@ class ASLConformerSeq2Seq(nn.Module):
         super().__init__()
         self.encoder = ConformerEncoder(cfg)
         self.decoder = TransformerDecoder(cfg, vocab_size, pad_idx)
+        self.ctc_head = nn.Linear(cfg.d_model, vocab_size) if cfg.ctc else None
 
     def forward(self, x: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
         return self.decoder(tgt, self.encoder(x))
+
+    def forward_joint(self, x: torch.Tensor, tgt: torch.Tensor):
+        # one encoder pass shared by the attention decoder and the CTC head
+        memory = self.encoder(x)
+        ctc_logits = self.ctc_head(memory) if self.ctc_head is not None else None
+        return self.decoder(tgt, memory), ctc_logits
 
     def num_parameters(self) -> int:
         return sum(p.numel() for p in self.parameters())

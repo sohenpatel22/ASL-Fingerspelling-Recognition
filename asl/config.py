@@ -21,6 +21,12 @@ class ModelConfig:
     embed_dim: int = 192
     dropout: float = 0.25
     conv_kernel: int = 31
+    ctc: bool = False  # extra CTC head on the encoder for the joint loss
+    velocity: bool = False  # append frame-to-frame differences to the input features
+
+    @property
+    def input_dim(self) -> int:
+        return self.feature_size * (2 if self.velocity else 1)
 
 
 @dataclass
@@ -48,6 +54,7 @@ class TrainConfig:
     scheduler: str = "cosine"
     min_lr_ratio: float = 0.0
     label_smoothing: float = 0.20
+    ctc_weight: float = 0.0  # 0 = attention loss only; needs model.ctc=true when above 0
     grad_clip: float = 1.0
     num_workers: int = 2
     patience: int = 10

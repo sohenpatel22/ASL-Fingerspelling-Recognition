@@ -26,6 +26,21 @@ def greedy_decode(
 
 
 @torch.no_grad()
+def ctc_greedy_decode(model: ASLConformerSeq2Seq, x: torch.Tensor, vocab: Vocab) -> list[list[int]]:
+    # blank is the PAD id: argmax per frame, collapse repeats, drop blanks
+    frames = model.ctc_head(model.encoder(x)).argmax(-1).tolist()
+    out = []
+    for row in frames:
+        tokens, prev = [], None
+        for t in row:
+            if t != prev and t != vocab.pad_idx:
+                tokens.append(t)
+            prev = t
+        out.append(tokens)
+    return out
+
+
+@torch.no_grad()
 def beam_search(
     model: ASLConformerSeq2Seq,
     x: torch.Tensor,

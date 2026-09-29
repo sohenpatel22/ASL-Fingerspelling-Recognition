@@ -36,7 +36,7 @@ def test_causal_decoder_ignores_future_tokens(tiny_model, tiny_cfg, vocab):
     b = torch.tensor([[vocab.start_idx, 3, 9, 9]])
     with torch.no_grad():
         la, lb = tiny_model(x, a), tiny_model(x, b)
-    torch.testing.assert_close(la[:, :2], lb[:, :2], rtol=1e-4, atol=1e-4)  # positions before the change agree
+    torch.testing.assert_close(la[:, :2], lb[:, :2], rtol=1e-4, atol=1e-4)
 
 
 def test_greedy_decode_shapes_and_termination(tiny_model, tiny_cfg, vocab):

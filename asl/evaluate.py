@@ -95,6 +95,7 @@ def main(argv: list[str] | None = None) -> None:
     device = resolve_device(args.device)
     cfg = load_config(args.config, args.overrides)
     model, vocab, ckpt = load_checkpoint(args.checkpoint, device, allow_unsafe=args.allow_unsafe)
+    cfg.model = ckpt["_model_config"]  # data must match the model, whatever the config says
     decode_cfg = DecodeConfig(
         beam_width=int(ckpt.get("beam_width", cfg.decode.beam_width)),
         length_penalty=float(ckpt.get("length_penalty", cfg.decode.length_penalty)),

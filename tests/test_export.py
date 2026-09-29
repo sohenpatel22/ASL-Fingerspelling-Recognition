@@ -56,6 +56,7 @@ def test_benchmark_reports_all_variants(tmp_path, tiny_cfg, tiny_model, vocab, e
     for row in report.values():
         assert row["latency_ms_p50"] > 0 and row["size_mb"] > 0
         assert np.isfinite(row["cer"]) and row["cer"] >= 0
+    assert report["torch"]["agreement_with_torch"] == 1.0
     assert all((onnx_dir / f).exists() for pair in FILES.values() for f in pair)
 
 

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install (CPU torch keeps the job fast)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+      - name: Lint
+        run: ruff check asl tests app scripts
+      - name: Unit tests
+        run: pytest
+      - name: End-to-end smoke training + evaluation on synthetic data
+        run: |
+          asl-train --config configs/smoke.yaml train.epochs=2 train.out_dir=checkpoints/ci
+          asl-eval --checkpoint checkpoints/ci/best.pth --config configs/smoke.yaml --max-samples 16

@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "asl-fingerspelling"
+version = "0.2.0"
+description = "ASL fingerspelling recognition: MediaPipe landmarks -> Conformer-Transformer -> text"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Sohen Patel" }]
+dependencies = [
+    "torch>=2.2",
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyyaml>=6.0",
+    "editdistance>=0.8",
+    "tqdm>=4.66",
+    "huggingface_hub>=0.23",
+]
+
+[project.optional-dependencies]
+preprocess = ["pyarrow>=15"]
+app = [
+    "gradio>=5",
+    "mediapipe==0.10.21",
+    "opencv-python-headless>=4.9",
+    "gtts>=2.5",
+    "groq>=0.9",
+]
+dev = ["pytest>=8", "ruff>=0.5", "pyarrow>=15"]
+
+[project.scripts]
+asl-train = "asl.train:main"
+asl-eval = "asl.evaluate:main"
+asl-preprocess = "asl.data:main"
+
+[tool.setuptools.packages.find]
+include = ["asl*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

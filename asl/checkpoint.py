@@ -17,7 +17,7 @@ from asl.vocab import Vocab
 
 log = logging.getLogger(__name__)
 
-DEFAULT_REPO_ID = "sohenpatel22/asl-fingerspelling-conformer"
+DEFAULT_REPO_ID = "SohenP/asl-fingerspelling-conformer"
 DEFAULT_FILENAME = "asl_transformer_v6_final.pth"
 _ARCH_KEYS = {
     "feature_size": "feature_size",

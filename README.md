@@ -51,7 +51,7 @@ cd ASL-Fingerspelling-Recognition
 python -m venv .venv
 source .venv/bin/activate        # .venv\Scripts\activate on Windows
 pip install -e ".[dev,serve,mlops,export]"
-pytest
+pytest                                   # about 110 tests, ~2 minutes on CPU
 asl-train --config configs/smoke.yaml
 ```
 
@@ -98,6 +98,37 @@ passes a threshold:
 asl-eval --checkpoint checkpoints/v6/best.pth --out metrics/test.json
 asl-promote --name asl-fingerspelling --metrics metrics/test.json --max-cer 0.45
 ```
+
+## Improving accuracy
+
+The v5 model has a test CER of 0.44, which I want to bring down. Everything below is implemented
+and unit tested, and each piece is off by default so old checkpoints and configs keep working.
+**None of it has been trained on the real data yet, so there are no accuracy claims here.**
+
+| idea | switch | why |
+|---|---|---|
+| CTC loss next to the attention loss | `model.ctc=true train.ctc_weight=0.3` | attention decoders hallucinate on short or unclear clips; CTC keeps the encoder aligned to characters |
+| longer clips | `model.max_seq_len=128` | 64 frames is a heavy squeeze for a long phrase |
+| velocity features | `model.velocity=true` | finger motion, not just pose, separates similar letters |
+| stronger augmentation | `data.augment=strong` | rotation, aspect jitter and "missed hand" spans, for unseen signers |
+| character language model | `asl-lm`, `decode.lm_weight` | phrases are addresses, numbers and URLs with strong structure |
+| signer cross-validation | `asl-cv --folds 5` | one test split of ~14 signers is noisy; this gives mean and std |
+
+`asl-ablate` warm-starts every variant from the same v5 weights, trains each on the same split and
+scores a seeded random subset of validation and test with beam search. It writes a table like the
+one below and saves after every run:
+
+| run | val CER (greedy, best epoch) | val CER (beam) | test CER (beam) | test 95% CI | signers |
+|---|---|---|---|---|---|
+| a0_baseline ... a5_all | to be filled in from the Kaggle run | | | | |
+
+Choices are made on validation only: the best variant is picked by validation CER, the language
+model weight is tuned on validation, and the test set is scored once at the end. Cross-validation
+has to train from scratch, because the v5 weights have already seen most signers.
+
+The GPU runs happen on Kaggle, where the competition data lives. `kaggle/preprocess` and
+`kaggle/train` are two small notebooks that clone this repo and call the commands above, so the
+logic stays in the package.
 
 ## Serving
 
@@ -212,12 +243,14 @@ feature and none of the numbers above use it.
 ## Layout
 
 ```
-asl/          the package (model, data, training, decoding, eval, inference, serving, export)
+asl/          the package (model, data, training, decoding, eval, inference, serving, export,
+              language model, cross-validation, ablations)
 app/          gradio demo
 configs/      default, local_4gb, smoke
 deploy/       prometheus, alert rules, grafana dashboard
 tests/        pytest
 scripts/      webcam demo, metric gate
+kaggle/       preprocess and GPU training notebooks for Kaggle
 notebooks/    v6 fine-tune notebook from Kaggle
 reports/      original course report
 dvc.yaml      data + training pipeline
@@ -226,8 +259,8 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- better accuracy: CTC loss alongside attention, sequences longer than 64 frames, z and velocity
-  features, an n-gram LM for rescoring
+- run the ablations on Kaggle and report what actually helped (see "Improving accuracy")
+- z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 
 ## Limitations

@@ -75,6 +75,8 @@ class TrainConfig:
 class DecodeConfig:
     beam_width: int = 5
     length_penalty: float = 0.6
+    lm_path: str | None = None  # character n-gram LM from asl-lm
+    lm_weight: float = 0.0  # 0 turns the language model off
 
 
 @dataclass

@@ -170,12 +170,12 @@ when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
 The demo runs as a Gradio Space on the free CPU tier. The weights live in a Hugging Face model
 repo and the Space downloads them at startup, so nothing big goes in git.
 
-1. Upload the weights to a model repo (once): `hf upload <user>/asl-fingerspelling-conformer asl_v5_best.pth`
-   and set the Space variables `ASL_MODEL_REPO=<user>/asl-fingerspelling-conformer` and
-   `ASL_MODEL_FILE=asl_v5_best.pth`.
-2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space <user>/asl-fingerspelling`
+1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer checkpoints/v5/asl_v5_best.pth asl_v5_best.pth`
+   and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
+   `SohenP/asl-fingerspelling-conformer`).
+2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
    (needs `HF_TOKEN` in the environment).
-3. For automatic deploys, add a repo variable `HF_SPACE` (`<user>/<space-name>`) and a repo secret
+3. For automatic deploys, add a repo variable `HF_SPACE` (`SohenP/asl-fingerspelling`) and a repo secret
    `HF_TOKEN` (a token with write access). `deploy-space.yml` then redeploys whenever `asl/` or
    `app/` changes on `main`, and does nothing if `HF_SPACE` isn't set.
 
@@ -189,7 +189,7 @@ python app/app.py
 ```
 
 Weights aren't in the repo. The app looks for `ASL_CHECKPOINT`, a local file, or the Hugging Face
-Hub (`sohenpatel22/asl-fingerspelling-conformer`), in that order. Checkpoints saved by the old
+Hub (`SohenP/asl-fingerspelling-conformer`), in that order. Checkpoints saved by the old
 notebooks have numpy scalars in them, so convert a trusted one first with
 `python -m asl.checkpoint convert old.pth new.pth`.
 

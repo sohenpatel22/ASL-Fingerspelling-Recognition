@@ -31,11 +31,17 @@ def evaluate_dataset(
     device: str | torch.device = "cpu",
     max_samples: int | None = None,
     lm: CharNgramLM | None = None,
+    sample_seed: int | None = None,
 ) -> dict[str, Any]:
     model.eval()
     n = len(dataset) if max_samples is None else min(max_samples, len(dataset))
+    # a seeded random subset covers many signers; the first n rows usually do not
+    if sample_seed is None:
+        order = np.arange(n)
+    else:
+        order = np.random.RandomState(sample_seed).permutation(len(dataset))[:n]
     preds, tgts = [], []
-    for i in tqdm(range(n), desc="evaluating"):
+    for i in tqdm(order, desc="evaluating"):
         x, y = dataset[i]
         tokens, _ = beam_search(
             model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty,
@@ -57,7 +63,7 @@ def evaluate_dataset(
     }
     df = getattr(dataset, "df", None)
     if df is not None and "participant_id" in df.columns:
-        by_signer = group_cer(preds, tgts, df["participant_id"].iloc[:n].tolist())
+        by_signer = group_cer(preds, tgts, df["participant_id"].iloc[order].tolist())
         vals = list(by_signer.values())
         result["n_signers"] = len(vals)
         result["cer_signer_mean"] = float(np.mean(vals))
@@ -75,6 +81,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", default=None)
     parser.add_argument("--split", choices=["val", "test"], default="test")
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--sample-seed", type=int, default=None, help="pick a random subset with this seed")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--out", default=None, help="write summary metrics json here")
     parser.add_argument("--details-out", default=None, help="write per-signer cer and examples here")
@@ -104,7 +111,9 @@ def main(argv: list[str] | None = None) -> None:
         table = {}
         for w in [float(v) for v in args.sweep_lm_weights.split(",")]:
             trial = DecodeConfig(decode_cfg.beam_width, decode_cfg.length_penalty, decode_cfg.lm_path, w)
-            res = evaluate_dataset(model, dataset, vocab, trial, max_len, device, args.max_samples, lm)
+            res = evaluate_dataset(
+                model, dataset, vocab, trial, max_len, device, args.max_samples, lm, args.sample_seed
+            )
             table[w] = res["cer"]
             print(f"lm_weight {w}: CER {table[w]:.4f}")
         best = min(table, key=table.get)
@@ -114,7 +123,9 @@ def main(argv: list[str] | None = None) -> None:
             Path(args.out).write_text(json.dumps({"sweep": table, "best_lm_weight": best}, indent=2))
         return
 
-    result = evaluate_dataset(model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm)
+    result = evaluate_dataset(
+        model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm, args.sample_seed
+    )
     summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples")}
     print(json.dumps(summary, indent=2))
     for path, payload in ((args.out, summary), (args.details_out, result)):

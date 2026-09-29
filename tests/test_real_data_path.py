@@ -61,3 +61,20 @@ def test_strong_augmentation_only_applies_to_training_data(tmp_path):
         data = build_datasets(cfg, Vocab())
         assert all(part.strong is expected for part in data["train"].datasets)
         assert not data["val"].augment and not data["test"].augment
+
+
+def test_seeded_random_subset_covers_more_signers_than_the_first_rows(tiny_cfg, tiny_model, vocab):
+    import numpy as np
+
+    from asl.config import DecodeConfig
+    from asl.data import SyntheticDataset
+    from asl.evaluate import evaluate_dataset
+
+    ds = SyntheticDataset(60, vocab, tiny_cfg.model, seed=3)
+    ds.df["participant_id"] = np.repeat(np.arange(6), 10)  # rows are grouped by signer, like real data
+    common = (tiny_model, ds, vocab, DecodeConfig(2, 0.6), 8)
+    first = evaluate_dataset(*common, max_samples=10)
+    rand_a = evaluate_dataset(*common, max_samples=10, sample_seed=1)
+    rand_b = evaluate_dataset(*common, max_samples=10, sample_seed=1)
+    assert first["n_signers"] == 1 and rand_a["n_signers"] > 1
+    assert rand_a["cer"] == rand_b["cer"]

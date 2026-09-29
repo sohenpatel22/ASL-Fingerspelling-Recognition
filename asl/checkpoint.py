@@ -130,7 +130,11 @@ def transfer_weights(model: ASLConformerSeq2Seq, state: dict[str, torch.Tensor])
         elif target[name].shape == tensor.shape:
             target[name].copy_(tensor)
             stats["copied"] += 1
-        elif "fc_out" in name or "embed" in name:
+        elif "fc_out" in name or "embed" in name or name == "encoder.proj.0.weight":
+            # new vocab rows or new input channels (velocity) start from their fresh init, except the
+            # input conv where the extra channels start at zero so the old behaviour is preserved
+            if name == "encoder.proj.0.weight":
+                target[name].zero_()
             slices = tuple(slice(0, min(a, b)) for a, b in zip(tensor.shape, target[name].shape, strict=True))
             target[name][slices].copy_(tensor[slices])
             stats["resized"] += 1
@@ -150,6 +154,14 @@ def convert_checkpoint(src: str | Path, dst: str | Path) -> Path:
         plain.pop("idx_to_char")
     torch.save(plain, dst)
     return Path(dst)
+
+
+def fetch_hub_file(spec: str) -> Path:
+    # "hf:user/repo/filename.pth" -> local path of the downloaded file
+    from huggingface_hub import hf_hub_download
+
+    repo_id, _, filename = spec.removeprefix("hf:").rpartition("/")
+    return Path(hf_hub_download(repo_id=repo_id, filename=filename))
 
 
 def resolve_checkpoint(

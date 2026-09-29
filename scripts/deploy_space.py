@@ -66,7 +66,7 @@ def main() -> None:
 
     if not args.space:
         raise SystemExit("--space user/name is required with --push")
-    api = HfApi(token=os.environ["HF_TOKEN"])
+    api = HfApi(token=os.environ.get("HF_TOKEN"))  # falls back to the token from `hf auth login`
     api.create_repo(args.space, repo_type="space", space_sdk="gradio", exist_ok=True)
     api.upload_folder(folder_path=str(dest), repo_id=args.space, repo_type="space")
     print(f"pushed to https://huggingface.co/spaces/{args.space}")

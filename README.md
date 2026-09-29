@@ -174,7 +174,7 @@ repo and the Space downloads them at startup, so nothing big goes in git.
    and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
    `SohenP/asl-fingerspelling-conformer`).
 2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
-   (needs `HF_TOKEN` in the environment).
+   (uses `HF_TOKEN` if set, otherwise your `hf auth login` session).
 3. For automatic deploys, add a repo variable `HF_SPACE` (`SohenP/asl-fingerspelling`) and a repo secret
    `HF_TOKEN` (a token with write access). `deploy-space.yml` then redeploys whenever `asl/` or
    `app/` changes on `main`, and does nothing if `HF_SPACE` isn't set.

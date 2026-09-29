@@ -112,3 +112,49 @@ def test_metrics():
     assert groups == {"1": 0.0, "2": pytest.approx(1 / 3)}
     lo, hi = bootstrap_ci([0.1, 0.2, 0.3, 0.4])
     assert 0.1 <= lo <= 0.25 <= hi <= 0.4
+
+
+def test_rotate_keeps_radii_and_zeros():
+    from asl.features import rotate
+
+    seq = wrist_normalize(_random_landmarks(20))
+    out = rotate(seq, np.deg2rad(12))
+    for off in (0, 42):
+        r_in = np.hypot(seq[:, off : off + 21], seq[:, off + 21 : off + 42])
+        r_out = np.hypot(out[:, off : off + 21], out[:, off + 21 : off + 42])
+        np.testing.assert_allclose(r_in, r_out, atol=1e-5)
+    assert np.all(out[5:10, 42:] == 0)  # missing hand stays missing
+
+
+def test_stretch_scales_axes_independently():
+    from asl.features import stretch
+
+    seq = wrist_normalize(_random_landmarks(10))
+    out = stretch(seq, 2.0, 0.5)
+    np.testing.assert_allclose(out[:, :21], seq[:, :21] * 2.0)
+    np.testing.assert_allclose(out[:, 21:42], seq[:, 21:42] * 0.5)
+
+
+def test_drop_hand_span_blanks_exactly_one_hand_for_a_short_span():
+    from asl.features import drop_hand_span
+
+    seq = np.ones((40, 84), dtype=np.float32)
+    for seed in range(20):
+        out = drop_hand_span(seq, np.random.default_rng(seed))
+        left_blank = (out[:, :42] == 0).all(axis=1)
+        right_blank = (out[:, 42:] == 0).all(axis=1)
+        assert left_blank.any() != right_blank.any()  # only one hand is touched
+        assert 2 <= (left_blank | right_blank).sum() <= 9
+        assert out.sum() < seq.sum()
+
+
+def test_strong_augment_is_valid_and_changes_more_than_basic():
+    seq = wrist_normalize(_random_landmarks(50))
+    basic_change, strong_change = [], []
+    for seed in range(60):
+        b = augment(seq, np.random.default_rng(seed), strong=False)
+        s = augment(seq, np.random.default_rng(seed), strong=True)
+        assert s.shape[1] == 84 and s.dtype == np.float32 and np.isfinite(s).all()
+        basic_change.append(np.abs(b[:4] - seq[:4]).mean())
+        strong_change.append(np.abs(s[:4] - seq[:4]).mean())
+    assert np.mean(strong_change) > np.mean(basic_change)

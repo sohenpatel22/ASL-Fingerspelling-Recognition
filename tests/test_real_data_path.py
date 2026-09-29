@@ -42,3 +42,22 @@ def test_preprocess_train_evaluate_on_competition_format_data(tmp_path):
     details = json.loads((tmp_path / "details.json").read_text())
     assert summary["n_samples"] > 0 and "cer" in summary and "cer_by_signer" not in summary
     assert set(details["cer_by_signer"]) and details["examples"]
+
+
+def test_strong_augmentation_only_applies_to_training_data(tmp_path):
+    from asl.config import load_config
+    from asl.data import build_datasets
+    from asl.vocab import Vocab
+
+    comp = make_fake_competition(tmp_path / "raw")
+    npy_train, npy_supp = tmp_path / "npy_train", tmp_path / "npy_supp"
+    preprocess_main(["--comp-dir", str(comp), "--out-train", str(npy_train), "--out-supp", str(npy_supp)])
+    overrides = [
+        f"data.comp_dir={comp.as_posix()}", f"data.npy_train={npy_train.as_posix()}",
+        f"data.npy_supp={npy_supp.as_posix()}",
+    ]
+    for setting, expected in (("strong", True), ("basic", False)):
+        cfg = load_config(None, [*overrides, f"data.augment={setting}"])
+        data = build_datasets(cfg, Vocab())
+        assert all(part.strong is expected for part in data["train"].datasets)
+        assert not data["val"].augment and not data["test"].augment

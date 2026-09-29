@@ -49,6 +49,7 @@ asl-promote = "asl.tracking:main"
 asl-reference = "asl.monitoring:main"
 asl-export = "asl.export:main"
 asl-serve = "asl.serve:main"
+asl-lm = "asl.lm:main"
 
 [tool.setuptools.packages.find]
 include = ["asl*"]

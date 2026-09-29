@@ -14,6 +14,7 @@ from asl.checkpoint import load_checkpoint
 from asl.config import DecodeConfig, load_config
 from asl.data import build_datasets
 from asl.decode import beam_search
+from asl.lm import CharNgramLM
 from asl.metrics import bootstrap_ci, cer, exact_match, group_cer, mean_cer
 from asl.model import ASLConformerSeq2Seq
 from asl.train import resolve_device
@@ -29,6 +30,7 @@ def evaluate_dataset(
     max_len: int,
     device: str | torch.device = "cpu",
     max_samples: int | None = None,
+    lm: CharNgramLM | None = None,
 ) -> dict[str, Any]:
     model.eval()
     n = len(dataset) if max_samples is None else min(max_samples, len(dataset))
@@ -36,7 +38,8 @@ def evaluate_dataset(
     for i in tqdm(range(n), desc="evaluating"):
         x, y = dataset[i]
         tokens, _ = beam_search(
-            model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty
+            model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty,
+            lm=lm, lm_weight=decode_cfg.lm_weight,
         )
         preds.append(vocab.decode(tokens))
         tgts.append(vocab.decode(y.tolist()[1:]))
@@ -50,6 +53,7 @@ def evaluate_dataset(
         "exact_match": exact_match(preds, tgts),
         "beam_width": decode_cfg.beam_width,
         "length_penalty": decode_cfg.length_penalty,
+        "lm_weight": decode_cfg.lm_weight if lm is not None else 0.0,
     }
     df = getattr(dataset, "df", None)
     if df is not None and "participant_id" in df.columns:
@@ -75,6 +79,9 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--out", default=None, help="write summary metrics json here")
     parser.add_argument("--details-out", default=None, help="write per-signer cer and examples here")
     parser.add_argument("--allow-unsafe", action="store_true", help="trust legacy pickled ckpt")
+    parser.add_argument(
+        "--sweep-lm-weights", default=None, help="comma separated weights to try (use with --split val)"
+    )
     parser.add_argument("overrides", nargs="*")
     args = parser.parse_args(argv)
 
@@ -84,12 +91,30 @@ def main(argv: list[str] | None = None) -> None:
     decode_cfg = DecodeConfig(
         beam_width=int(ckpt.get("beam_width", cfg.decode.beam_width)),
         length_penalty=float(ckpt.get("length_penalty", cfg.decode.length_penalty)),
+        lm_path=cfg.decode.lm_path,
+        lm_weight=cfg.decode.lm_weight,
     )
+    lm = CharNgramLM.load(decode_cfg.lm_path) if decode_cfg.lm_path else None
     dataset = build_datasets(cfg, vocab)[args.split]
-    result = evaluate_dataset(
-        model, dataset, vocab, decode_cfg, ckpt["_model_config"].max_phrase_len, device,
-        args.max_samples,
-    )
+    max_len = ckpt["_model_config"].max_phrase_len
+
+    if args.sweep_lm_weights:
+        if lm is None:
+            raise SystemExit("--sweep-lm-weights needs decode.lm_path")
+        table = {}
+        for w in [float(v) for v in args.sweep_lm_weights.split(",")]:
+            trial = DecodeConfig(decode_cfg.beam_width, decode_cfg.length_penalty, decode_cfg.lm_path, w)
+            res = evaluate_dataset(model, dataset, vocab, trial, max_len, device, args.max_samples, lm)
+            table[w] = res["cer"]
+            print(f"lm_weight {w}: CER {table[w]:.4f}")
+        best = min(table, key=table.get)
+        print(f"best lm_weight on {args.split}: {best} (CER {table[best]:.4f})")
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            Path(args.out).write_text(json.dumps({"sweep": table, "best_lm_weight": best}, indent=2))
+        return
+
+    result = evaluate_dataset(model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm)
     summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples")}
     print(json.dumps(summary, indent=2))
     for path, payload in ((args.out, summary), (args.details_out, result)):

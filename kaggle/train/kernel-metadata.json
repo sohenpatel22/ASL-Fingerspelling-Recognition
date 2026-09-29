@@ -1,0 +1,19 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-train",
+  "title": "ASL Fingerspelling Train",
+  "code_file": "train.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [
+    "sohenpatel/asl-fingerspelling-preprocess"
+  ],
+  "model_sources": []
+}

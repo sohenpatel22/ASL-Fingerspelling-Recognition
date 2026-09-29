@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import ConcatDataset, Dataset
 
 from asl.config import Config, DataConfig, ModelConfig
-from asl.features import augment, resample_or_pad, wrist_normalize
+from asl.features import augment, fit_length, wrist_normalize
 from asl.vocab import Vocab
 
 _LH_X = [f"x_left_hand_{i}" for i in range(21)]
@@ -70,7 +70,7 @@ class ASLDataset(Dataset):
         seq = np.load(self.npy_dir / f"{row['sequence_id']}.npy").astype(np.float32)
         if self.augment:
             seq = augment(seq, self._get_rng())
-        seq = resample_or_pad(seq, self.cfg.max_seq_len)
+        seq = fit_length(seq, self.cfg.max_seq_len, self.cfg.velocity)
         x = torch.from_numpy(np.ascontiguousarray(seq.T)).float()
         y = torch.tensor(
             self.vocab.encode(str(row["phrase"]), self.cfg.max_phrase_len), dtype=torch.long
@@ -107,7 +107,7 @@ class SyntheticDataset(Dataset):
             for c in phrase
             for _ in range(4)
         ]
-        seq = resample_or_pad(np.asarray(frames, dtype=np.float32), self.cfg.max_seq_len)
+        seq = fit_length(np.asarray(frames, dtype=np.float32), self.cfg.max_seq_len, self.cfg.velocity)
         y = torch.tensor(self.vocab.encode(phrase, self.cfg.max_phrase_len), dtype=torch.long)
         return torch.from_numpy(np.ascontiguousarray(seq.T)).float(), y
 

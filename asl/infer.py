@@ -56,7 +56,7 @@ class Predictor:
             raise ValueError(
                 f"expected a non-empty (T, {self.model_cfg.feature_size}) array, got {landmarks.shape}"
             )
-        x = torch.from_numpy(to_model_input(landmarks, self.model_cfg.max_seq_len))
+        x = torch.from_numpy(to_model_input(landmarks, self.model_cfg.max_seq_len, self.model_cfg.velocity))
         tokens, score = beam_search(
             self.model,
             x.to(self.device),

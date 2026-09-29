@@ -53,7 +53,7 @@ def export_onnx(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     model = model.cpu().eval()
-    x = torch.randn(2, model_cfg.feature_size, model_cfg.max_seq_len)
+    x = torch.randn(2, model_cfg.input_dim, model_cfg.max_seq_len)
     tgt = torch.tensor([[vocab.start_idx, 3, 4, 5], [vocab.start_idx, 7, 8, 9]])
     memory = model.encoder(x)
     batch = Dim("batch", min=1, max=64)
@@ -170,7 +170,8 @@ def benchmark(
             predictors[f"onnx_{variant}"] = load_onnx_predictor(onnx_dir, variant)
 
     # latency is measured on raw landmark clips, the same input the service receives
-    clips = [dataset[i][0].T.numpy() for i in range(min(n, len(dataset)))]
+    width = ckpt["_model_config"].feature_size  # the first columns are the plain landmarks
+    clips = [dataset[i][0].T.numpy()[:, :width] for i in range(min(n, len(dataset)))]
     results = {}
     torch_texts: list[str] = []
     for name, predictor in predictors.items():

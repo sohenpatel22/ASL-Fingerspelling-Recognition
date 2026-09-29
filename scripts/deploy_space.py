@@ -13,19 +13,18 @@ colorFrom: blue
 colorTo: indigo
 sdk: gradio
 sdk_version: 6.10.0
-python_version: "3.12"
+python_version: "3.12.12"
 app_file: app.py
 pinned: false
 license: mit
 ---
 
 Upload or record a short clip of ASL fingerspelling and get the text back.
-MediaPipe hand landmarks go into a Conformer encoder + Transformer decoder.
+MediaPipe hand landmarks go into a Conformer encoder + Transformer decoder, which runs on ZeroGPU.
 Code: https://github.com/sohenpatel22/ASL-Fingerspelling-Recognition
 """
 
-REQUIREMENTS = """--extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.11.0
+REQUIREMENTS = """torch==2.11.0
 numpy==1.26.4
 pyyaml
 huggingface_hub
@@ -54,6 +53,7 @@ def main() -> None:
     parser.add_argument("--space", help="user/name of the Space, needed with --push")
     parser.add_argument("--push", action="store_true")
     parser.add_argument("--out", default=None, help="stage into this folder instead of a temp dir")
+    parser.add_argument("--hardware", default="zero-a10g", help="hardware for a newly created Space")
     args = parser.parse_args()
 
     dest = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="asl-space-"))
@@ -68,17 +68,10 @@ def main() -> None:
         raise SystemExit("--space user/name is required with --push")
     api = HfApi(token=os.environ.get("HF_TOKEN"))  # falls back to the token from `hf auth login`
     api.create_repo(
-        args.space, repo_type="space", space_sdk="gradio", space_hardware="cpu-basic", exist_ok=True
+        args.space, repo_type="space", space_sdk="gradio", space_hardware=args.hardware, exist_ok=True
     )
     api.upload_folder(folder_path=str(dest), repo_id=args.space, repo_type="space")
     print(f"pushed to https://huggingface.co/spaces/{args.space}")
-
-    requested = api.get_space_runtime(args.space).raw.get("hardware", {}).get("requested")
-    if requested not in (None, "cpu-basic"):
-        print(
-            f"warning: this Space asks for {requested} hardware but the app runs on CPU. "
-            "Recreate it with 'CPU basic' selected (a ZeroGPU Space can't be switched back for free)."
-        )
 
 
 if __name__ == "__main__":

@@ -50,6 +50,7 @@ asl-reference = "asl.monitoring:main"
 asl-export = "asl.export:main"
 asl-serve = "asl.serve:main"
 asl-lm = "asl.lm:main"
+asl-cv = "asl.cv:main"
 
 [tool.setuptools.packages.find]
 include = ["asl*"]

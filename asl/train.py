@@ -6,6 +6,7 @@ import math
 import random
 import time
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from asl.data import build_datasets
 from asl.decode import greedy_decode
 from asl.metrics import exact_match, mean_cer
 from asl.model import ASLConformerSeq2Seq
+from asl.tracking import MLflowTracker
 from asl.vocab import Vocab
 
 MetricsCallback = Callable[[int, dict[str, float]], None]
@@ -277,10 +279,19 @@ def main(argv: list[str] | None = None) -> None:
         print(f"warm-started from {cfg.train.init_from}: {stats}")
 
     data: dict[str, Any] = build_datasets(cfg, vocab)
-    trainer = Trainer(cfg, model, vocab, data["train"], data["val"], device)
-    if args.resume:
-        trainer.resume()
-    trainer.fit()
+    tracker = MLflowTracker(cfg) if cfg.tracking.enabled else nullcontext()
+    with tracker as t:
+        trainer = Trainer(
+            cfg, model, vocab, data["train"], data["val"], device,
+            on_metrics=t.log_epoch if t else None,
+        )
+        if args.resume:
+            trainer.resume()
+        trainer.fit()
+        if t:
+            version = t.finish(cfg.train.out_dir, trainer.best_cer)
+            if version:
+                print(f"registered {cfg.tracking.register_as} v{version} (alias: candidate)")
 
 
 if __name__ == "__main__":

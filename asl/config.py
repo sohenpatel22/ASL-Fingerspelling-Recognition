@@ -70,17 +70,33 @@ class DecodeConfig:
 
 
 @dataclass
+class TrackingConfig:
+    enabled: bool = False
+    uri: str = "sqlite:///mlflow.db"
+    experiment: str = "asl-fingerspelling"
+    run_name: str | None = None
+    register_as: str | None = None
+
+
+@dataclass
 class Config:
     model: ModelConfig = field(default_factory=ModelConfig)
     data: DataConfig = field(default_factory=DataConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     decode: DecodeConfig = field(default_factory=DecodeConfig)
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
 
-_SECTIONS = {"model": ModelConfig, "data": DataConfig, "train": TrainConfig, "decode": DecodeConfig}
+_SECTIONS = {
+    "model": ModelConfig,
+    "data": DataConfig,
+    "train": TrainConfig,
+    "decode": DecodeConfig,
+    "tracking": TrackingConfig,
+}
 
 
 def _build_section(cls: type, raw: dict[str, Any]) -> Any:

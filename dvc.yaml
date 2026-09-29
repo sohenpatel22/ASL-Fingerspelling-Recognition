@@ -1,0 +1,49 @@
+vars:
+  - configs/default.yaml
+
+stages:
+  preprocess:
+    cmd: asl-preprocess --comp-dir ${data.comp_dir} --out-train ${data.npy_train} --out-supp ${data.npy_supp}
+    deps:
+      - ${data.comp_dir}/train.csv
+      - ${data.comp_dir}/supplemental_metadata.csv
+      - ${data.comp_dir}/train_landmarks
+      - ${data.comp_dir}/supplemental_landmarks
+      - asl/data.py
+      - asl/features.py
+    outs:
+      - ${data.npy_train}
+      - ${data.npy_supp}
+
+  train:
+    cmd: asl-train --config configs/default.yaml
+    deps:
+      - ${data.npy_train}
+      - ${data.npy_supp}
+      - asl
+    params:
+      - configs/default.yaml:
+          - model
+          - data
+          - train
+    outs:
+      - ${train.out_dir}
+
+  evaluate:
+    cmd: >-
+      asl-eval --checkpoint ${train.out_dir}/best.pth --config configs/default.yaml --split test
+      --out metrics/test.json --details-out metrics/test_details.json
+    deps:
+      - ${train.out_dir}/best.pth
+      - ${data.npy_train}
+      - asl/evaluate.py
+      - asl/decode.py
+    params:
+      - configs/default.yaml:
+          - decode
+    metrics:
+      - metrics/test.json:
+          cache: false
+    outs:
+      - metrics/test_details.json:
+          cache: false

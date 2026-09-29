@@ -1,3 +1,4 @@
+import os
 import subprocess
 import sys
 
@@ -15,7 +16,9 @@ def test_staged_space_is_self_contained(tmp_path):
         assert (stage / name).exists(), name
     readme = (stage / "README.md").read_text(encoding="utf-8")
     assert readme.startswith("---") and "sdk: gradio" in readme and "app_file: app.py" in readme
-    assert "download.pytorch.org/whl/cpu" in (stage / "requirements.txt").read_text()
+    requirements = (stage / "requirements.txt").read_text()
+    assert "torch==2.11.0" in requirements and "whl/cpu" not in requirements  # zerogpu needs cuda torch
+    assert 'python_version: "3.12.12"' in readme
     assert not list(stage.rglob("__pycache__"))
 
 
@@ -26,6 +29,26 @@ def test_staged_app_imports_its_own_asl_package(tmp_path):
     out = subprocess.run([sys.executable, "-c", code], cwd=stage, capture_output=True, text=True)
     assert out.returncode == 0, out.stderr[-500:]
     assert str(stage) in out.stdout
+
+
+def test_inference_function_is_wrapped_by_spaces_gpu(tmp_path):
+    pytest.importorskip("gradio")
+    stage = build_staging(tmp_path / "space")
+    stub = tmp_path / "stub"
+    stub.mkdir()
+    (stub / "spaces.py").write_text(
+        "import pathlib\n"
+        "def GPU(duration=None):\n"
+        "    def wrap(fn):\n"
+        "        pathlib.Path('wrapped.txt').write_text(fn.__name__)\n"
+        "        return fn\n"
+        "    return wrap\n"
+    )
+    env = {**os.environ, "PYTHONPATH": str(stub)}
+    cmd = [sys.executable, "-c", "import app"]
+    out = subprocess.run(cmd, cwd=stage, env=env, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr[-500:]
+    assert (stage / "wrapped.txt").read_text() == "predict"
 
 
 def test_resolve_checkpoint_order(tmp_path, monkeypatch):

@@ -168,19 +168,25 @@ when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
 
 ## Free deployment on Hugging Face Spaces
 
-The demo runs as a Gradio Space on the free CPU tier. The weights live in a Hugging Face model
-repo and the Space downloads them at startup, so nothing big goes in git.
+The demo runs as a Gradio Space on ZeroGPU, which is what a free Hugging Face account can host
+(up to 2 Spaces; a plain CPU Gradio Space needs a PRO plan). The model call is wrapped in
+`@spaces.GPU` and everything else, MediaPipe included, runs on the CPU. Free visitors get a few
+minutes of GPU time a day, and one clip takes about a second. The weights live in a Hugging Face
+model repo and the Space downloads them at startup, so nothing big goes in git.
 
 1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer checkpoints/v5/asl_v5_best.pth asl_v5_best.pth`
    and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
    `SohenP/asl-fingerspelling-conformer`).
-2. Create the Space, or let the script do it: `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
+2. Create a Gradio Space with **ZeroGPU** hardware, or let the script do it:
+   `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
    (uses `HF_TOKEN` if set, otherwise your `hf auth login` session).
 3. For automatic deploys, add a repo variable `HF_SPACE` (`SohenP/asl-fingerspelling`) and a repo secret
    `HF_TOKEN` (a token with write access). `deploy-space.yml` then redeploys whenever `asl/` or
    `app/` changes on `main`, and does nothing if `HF_SPACE` isn't set.
 
 Without `--push` the script only stages the files, which is a quick way to check what gets uploaded.
+The ZeroGPU path can only be tested on Hugging Face itself; locally the `@spaces.GPU` decorator
+is a no-op and the app runs on CPU.
 
 ## Demo
 
@@ -206,7 +212,7 @@ configs/      default, local_4gb, smoke
 deploy/       prometheus, alert rules, grafana dashboard
 tests/        pytest
 scripts/      webcam demo, metric gate
-notebooks/    original kaggle notebook
+notebooks/    v6 fine-tune notebook from Kaggle
 reports/      original course report
 dvc.yaml      data + training pipeline
 Dockerfile, docker-compose.yml

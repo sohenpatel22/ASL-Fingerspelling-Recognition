@@ -36,7 +36,6 @@ def beam_search(
 ) -> tuple[list[int], float]:
     if x.dim() == 2:
         x = x.unsqueeze(0)
-    device = x.device
     memory = model.encoder(x)
     beams: list[tuple[list[int], float]] = [([vocab.start_idx], 0.0)]
 
@@ -44,16 +43,15 @@ def beam_search(
         return b[1] / max(len(b[0]) - 1, 1) ** length_penalty
 
     for _ in range(max_len - 1):
-        candidates: list[tuple[list[int], float]] = []
-        for seq, score in beams:
-            if seq[-1] == vocab.eos_idx:
-                candidates.append((seq, score))
-                continue
-            tgt = torch.tensor([seq], dtype=torch.long, device=device)
-            logp = F.log_softmax(model.decoder(tgt, memory)[0, -1], dim=-1)
-            top = logp.topk(beam_width)
-            for lp, idx in zip(top.values.tolist(), top.indices.tolist(), strict=True):
-                candidates.append((seq + [idx], score + lp))
+        live = [b for b in beams if b[0][-1] != vocab.eos_idx]
+        candidates = [b for b in beams if b[0][-1] == vocab.eos_idx]
+        # every live beam has the same length, so one decoder call covers all of them
+        tgt = torch.tensor([seq for seq, _ in live], dtype=torch.long, device=x.device)
+        logp = F.log_softmax(model.decoder(tgt, memory.expand(len(live), -1, -1))[:, -1], dim=-1)
+        top = logp.topk(beam_width)
+        values, indices = top.values.tolist(), top.indices.tolist()
+        for (seq, score), vals, idxs in zip(live, values, indices, strict=True):
+            candidates += [(seq + [i], score + lp) for lp, i in zip(vals, idxs, strict=True)]
         beams = sorted(candidates, key=rank, reverse=True)[:beam_width]
         if all(b[0][-1] == vocab.eos_idx for b in beams):
             break

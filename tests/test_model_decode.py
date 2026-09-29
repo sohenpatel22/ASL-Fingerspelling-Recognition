@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from asl.config import ModelConfig
@@ -55,3 +56,38 @@ def test_beam_search_output_contract(tiny_model, tiny_cfg, vocab):
     x = torch.randn(84, tiny_cfg.model.max_seq_len)
     tokens, score = beam_search(tiny_model, x, vocab, beam_width=3, max_len=8)
     assert tokens[0] == vocab.start_idx and len(tokens) <= 8 and score <= 0.0
+
+
+def _reference_beam_search(model, x, vocab, beam_width, max_len, length_penalty):
+    # the original one-beam-at-a-time version used for the released model
+    import torch.nn.functional as F
+
+    memory = model.encoder(x.unsqueeze(0))
+    beams = [([vocab.start_idx], 0.0)]
+    for _ in range(max_len - 1):
+        candidates = []
+        for seq, score in beams:
+            if seq[-1] == vocab.eos_idx:
+                candidates.append((seq, score))
+                continue
+            logits = model.decoder(torch.tensor([seq], dtype=torch.long), memory)
+            top = F.log_softmax(logits[0, -1], dim=-1).topk(beam_width)
+            for lp, idx in zip(top.values, top.indices, strict=True):
+                candidates.append((seq + [idx.item()], score + lp.item()))
+        beams = sorted(
+            candidates, key=lambda b: b[1] / max(len(b[0]) - 1, 1) ** length_penalty, reverse=True
+        )[:beam_width]
+        if all(b[0][-1] == vocab.eos_idx for b in beams):
+            break
+    return beams[0]
+
+
+@pytest.mark.parametrize("seed", range(6))
+@pytest.mark.parametrize("width,penalty", [(1, 0.6), (3, 0.6), (5, 0.8)])
+def test_batched_beam_search_matches_reference(tiny_model, tiny_cfg, vocab, seed, width, penalty):
+    torch.manual_seed(seed)
+    x = torch.randn(84, tiny_cfg.model.max_seq_len)
+    got_tokens, got_score = beam_search(tiny_model, x, vocab, width, 12, penalty)
+    ref_tokens, ref_score = _reference_beam_search(tiny_model, x, vocab, width, 12, penalty)
+    assert got_tokens == ref_tokens
+    assert got_score == pytest.approx(ref_score, abs=1e-4)

@@ -38,6 +38,23 @@ def participant_split(
     )
 
 
+def participant_folds(meta: pd.DataFrame, k: int, seed: int = 42) -> list[set]:
+    participants = meta["participant_id"].unique()
+    np.random.RandomState(seed).shuffle(participants)
+    return [set(chunk) for chunk in np.array_split(participants, k)]
+
+
+def fold_split(
+    meta: pd.DataFrame, k: int, fold: int, seed: int = 42
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    # test = this fold, validation = the next one, train = everything else (all by signer)
+    folds = participant_folds(meta, k, seed)
+    test_p, val_p = folds[fold % k], folds[(fold + 1) % k]
+    pick = lambda mask: meta[mask].reset_index(drop=True)  # noqa: E731
+    in_test, in_val = meta["participant_id"].isin(test_p), meta["participant_id"].isin(val_p)
+    return pick(~in_test & ~in_val), pick(in_val), pick(in_test)
+
+
 class ASLDataset(Dataset):
 
     def __init__(
@@ -126,7 +143,10 @@ def build_datasets(cfg: Config, vocab: Vocab) -> dict[str, Dataset]:
 
     comp = Path(d.comp_dir)
     train_meta = pd.read_csv(comp / "train.csv")
-    tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
+    if d.cv_folds > 0:
+        tr, va, te = fold_split(train_meta, d.cv_folds, d.cv_fold, d.split_seed)
+    else:
+        tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
     aug = {"augment_data": True, "strong_augment": d.augment == "strong"}
     train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, **aug)]
     if d.use_supplemental:

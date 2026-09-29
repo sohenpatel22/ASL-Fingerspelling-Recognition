@@ -39,6 +39,8 @@ class DataConfig:
     val_fraction: float = 0.15
     test_fraction: float = 0.15
     split_seed: int = 42
+    cv_folds: int = 0  # >0 switches to k-fold cross-validation over signers
+    cv_fold: int = 0  # which fold is the test fold (validation is the next one)
     # generated toy data for smoke tests / CI
     synthetic: bool = False
     synthetic_size: int = 512

@@ -1,0 +1,7 @@
+# 4gb laptop gpu: batch 24 x 4 accum steps = effective batch 96
+train:
+  batch_size: 24
+  grad_accum_steps: 4
+  num_workers: 2
+  amp: true
+  out_dir: checkpoints/local

@@ -1,0 +1,23 @@
+# tiny model on toy data, finishes in seconds on cpu
+model:
+  d_model: 64
+  enc_layers: 2
+  dec_layers: 2
+  n_heads: 4
+  ffn_dim: 128
+  embed_dim: 32
+  dropout: 0.1
+
+data:
+  synthetic: true
+  synthetic_size: 256
+
+train:
+  batch_size: 32
+  epochs: 3
+  lr: 1.0e-3
+  warmup_epochs: 1
+  label_smoothing: 0.0
+  num_workers: 0
+  eval_samples: 64
+  out_dir: checkpoints/smoke

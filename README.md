@@ -133,13 +133,14 @@ measures speed and agreement, not accuracy), 4 CPU threads on my laptop:
 
 | | median latency per clip | size | same text as torch |
 |---|---|---|---|
-| torch | ~640 ms | 113 MB | - |
-| onnx fp32 | ~430 ms | 114 MB | 100% |
-| onnx int8 | ~465 ms | 39 MB | 65% |
+| torch | ~660 ms | 113 MB | - |
+| onnx fp32 | ~410 ms | 114 MB | 100% |
+| onnx int8 (matmuls only) | ~370 ms | 47 MB | 80% |
 
-So fp32 ONNX is about 1.5x faster than PyTorch with identical output, while int8 is 3x smaller
-but not faster here and changes the output on a third of these clips. I wouldn't ship int8
-without checking CER on real test data, so the service defaults to fp32.
+So fp32 ONNX is about 1.6x faster than PyTorch with identical output. int8 is a bit faster again
+and 2.4x smaller, but it changes the output on one clip in five, so I wouldn't ship it without
+checking CER on real test data. The service defaults to fp32. (Quantizing the convolutions too
+made things worse: slower, less faithful, and older onnxruntime builds can't run them.)
 
 Separately, beam search runs all live beams in one decoder call instead of one call per beam.
 On the real weights that took a clip from about 1.4 s to 0.64 s, with identical output on every

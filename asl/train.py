@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, Dataset, Subset
 from tqdm import tqdm
 
 from asl.checkpoint import (
+    fetch_hub_file,
     load_checkpoint,
     load_state_dict_only,
     save_checkpoint,
@@ -296,7 +297,10 @@ def main(argv: list[str] | None = None) -> None:
     model = ASLConformerSeq2Seq(cfg.model, vocab.vocab_size, vocab.pad_idx).to(device)
     print(f"parameters: {model.num_parameters() / 1e6:.1f}M")
     if cfg.train.init_from and not args.resume:
-        state = load_state_dict_only(cfg.train.init_from, allow_unsafe=args.allow_unsafe)
+        source = cfg.train.init_from
+        if source.startswith("hf:"):
+            source = fetch_hub_file(source)
+        state = load_state_dict_only(source, allow_unsafe=args.allow_unsafe)
         stats = transfer_weights(model, state)
         print(f"warm-started from {cfg.train.init_from}: {stats}")
 

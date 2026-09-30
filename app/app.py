@@ -8,6 +8,7 @@ import gradio as gr
 import torch
 
 from asl.checkpoint import resolve_checkpoint
+from asl.gating import low_visibility
 from asl.infer import Predictor
 from asl.postprocess import MODES, enhance_text_with_llm
 from asl.video import NoHandsDetected, extract_landmarks
@@ -53,6 +54,11 @@ def translate(video_path: str | None, mode: str, speak: bool):
     text = enhance_text_with_llm(pred.text, mode)
     summary = f"{text}\n\n(raw: '{pred.text}' | confidence {pred.confidence:.2f} | "
     summary += f"hands detected in {detection_rate:.0%} of {pred.n_frames} frames)"
+    if low_visibility(detection_rate):
+        summary = (
+            f"Warning: your hands were only detected in {detection_rate:.0%} of the frames, so this "
+            "result is probably wrong. Try better lighting and keep both hands in view.\n\n" + summary
+        )
 
     audio_path = None
     if speak and text:

@@ -279,3 +279,23 @@ def test_evaluation_records_confidence_and_hand_rate(tmp_path, tiny_cfg, tiny_mo
     rec = res["predictions"]
     assert [round(r["hand_rate"], 2) for r in rec] == [1.0, 0.5]
     assert all(0 < r["confidence"] <= 1 for r in rec)
+
+
+def test_average_weights_is_the_mean_and_keeps_integer_buffers(tiny_cfg, vocab, tmp_path):
+    from asl.checkpoint import average_weights, load_state_dict_only
+    from asl.checkpoint import main as checkpoint_main
+
+    a, b = (ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx) for _ in range(2))
+    avg = average_weights([a.state_dict(), b.state_dict()])
+    key = "decoder.fc_out.weight"
+    torch.testing.assert_close(avg[key], (a.state_dict()[key] + b.state_dict()[key]) / 2)
+    counter = "encoder.proj.1.num_batches_tracked"
+    assert avg[counter].dtype == a.state_dict()[counter].dtype
+
+    torch.save({"model_state_dict": a.state_dict()}, tmp_path / "a.pth")
+    torch.save({"model_state_dict": b.state_dict()}, tmp_path / "b.pth")
+    inputs = [str(tmp_path / "a.pth"), str(tmp_path / "b.pth")]
+    checkpoint_main(["average", *inputs, "--out", str(tmp_path / "s.pth")])
+    torch.testing.assert_close(load_state_dict_only(tmp_path / "s.pth")[key], avg[key])
+    with pytest.raises(ValueError, match="different parameter names"):
+        average_weights([a.state_dict(), {"other": torch.zeros(1)}])

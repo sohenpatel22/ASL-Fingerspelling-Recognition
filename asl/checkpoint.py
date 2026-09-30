@@ -144,6 +144,21 @@ def transfer_weights(model: ASLConformerSeq2Seq, state: dict[str, torch.Tensor])
     return stats
 
 
+def average_weights(states: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    # plain mean of floating point tensors (a "checkpoint soup"); integer buffers keep the first value
+    keys = set(states[0])
+    if any(set(s) != keys for s in states):
+        raise ValueError("checkpoints have different parameter names")
+    out = {}
+    for name in states[0]:
+        first = states[0][name]
+        if first.is_floating_point():
+            out[name] = torch.stack([s[name].float() for s in states]).mean(0).to(first.dtype)
+        else:
+            out[name] = first.clone()
+    return out
+
+
 def convert_checkpoint(src: str | Path, dst: str | Path) -> Path:
     ckpt = _torch_load(src, allow_unsafe=True)
     if "model_state_dict" not in ckpt:
@@ -185,9 +200,17 @@ def main(argv: list[str] | None = None) -> None:
     conv = sub.add_parser("convert", help="convert a trusted legacy checkpoint to a safe format")
     conv.add_argument("src")
     conv.add_argument("dst")
+    avg = sub.add_parser("average", help="average the weights of several checkpoints")
+    avg.add_argument("paths", nargs="+")
+    avg.add_argument("--out", required=True)
+    avg.add_argument("--allow-unsafe", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "convert":
         print(f"wrote {convert_checkpoint(args.src, args.dst)}")
+    elif args.cmd == "average":
+        states = [load_state_dict_only(p, args.allow_unsafe) for p in args.paths]
+        torch.save({"model_state_dict": average_weights(states)}, args.out)
+        print(f"averaged {len(states)} checkpoints -> {args.out}")
 
 
 if __name__ == "__main__":

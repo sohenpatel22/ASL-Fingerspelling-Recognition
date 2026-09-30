@@ -90,6 +90,11 @@ class ASLDataset(Dataset):
             self._rng = (pid, np.random.default_rng(torch.initial_seed() % (2**32) + pid))
         return self._rng[1]
 
+    def hand_rate(self, i: int) -> float:
+        # share of the clip's real frames where at least one hand was detected
+        seq = np.load(self.npy_dir / f"{self.df.iloc[i]['sequence_id']}.npy")
+        return float((seq != 0).any(axis=1).mean())
+
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
         row = self.df.iloc[i]
         seq = np.load(self.npy_dir / f"{row['sequence_id']}.npy").astype(np.float32)
@@ -123,6 +128,9 @@ class SyntheticDataset(Dataset):
 
     def __len__(self) -> int:
         return self.n
+
+    def hand_rate(self, i: int) -> float:
+        return 1.0
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
         phrase = self.df.loc[i, "phrase"]

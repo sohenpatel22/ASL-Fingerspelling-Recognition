@@ -40,13 +40,15 @@ def evaluate_dataset(
         order = np.arange(n)
     else:
         order = np.random.RandomState(sample_seed).permutation(len(dataset))[:n]
-    preds, tgts = [], []
+    preds, tgts, confidences, hand_rates = [], [], [], []
     for i in tqdm(order, desc="evaluating"):
         x, y = dataset[i]
-        tokens, _ = beam_search(
+        tokens, score = beam_search(
             model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty,
             lm=lm, lm_weight=decode_cfg.lm_weight,
         )
+        confidences.append(float(np.exp(score / max(len(tokens) - 1, 1))))
+        hand_rates.append(dataset.hand_rate(i) if hasattr(dataset, "hand_rate") else None)
         preds.append(vocab.decode(tokens))
         tgts.append(vocab.decode(y.tolist()[1:]))
 
@@ -73,8 +75,11 @@ def evaluate_dataset(
     has_signers = df is not None and "participant_id" in df.columns
     signers = df["participant_id"].iloc[order].tolist() if has_signers else [None] * len(order)
     records = [
-        {"signer": str(s), "target": t, "prediction": p, "cer": cer(p, t) if t else None}
-        for s, p, t in zip(signers, preds, tgts, strict=True)
+        {
+            "signer": str(s), "target": t, "prediction": p, "cer": cer(p, t) if t else None,
+            "confidence": c, "hand_rate": h,
+        }
+        for s, p, t, c, h in zip(signers, preds, tgts, confidences, hand_rates, strict=True)
     ]
     result["predictions"] = records
     result["examples"] = [{"target": r["target"], "prediction": r["prediction"]} for r in records[:20]]

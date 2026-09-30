@@ -1,0 +1,95 @@
+{
+  "a0_baseline": {
+    "overrides": [],
+    "epochs_run": 6,
+    "best_val_greedy_cer": 0.4074494201523,
+    "val_beam_cer": 0.34950412690190863,
+    "test_cer": 0.39917068248568877,
+    "test_ci95": [
+      0.3815141734123888,
+      0.41706943954085096
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.2480151847501752
+  },
+  "a1_ctc": {
+    "overrides": [
+      "model.ctc=true",
+      "train.ctc_weight=0.3"
+    ],
+    "epochs_run": 7,
+    "best_val_greedy_cer": 0.41887489150242346,
+    "val_beam_cer": 0.3828247010896733,
+    "test_cer": 0.43269846519809757,
+    "test_ci95": [
+      0.4142696486232101,
+      0.4512366941244503
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.26352276422209986
+  },
+  "a2_len128": {
+    "overrides": [
+      "model.max_seq_len=128"
+    ],
+    "epochs_run": 12,
+    "best_val_greedy_cer": 0.3845163225129854,
+    "val_beam_cer": 0.40665215519631415,
+    "test_cer": 0.45017866270830137,
+    "test_ci95": [
+      0.4276795988013157,
+      0.47207979614302376
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.30116946234171177
+  },
+  "a3_velocity": {
+    "overrides": [
+      "model.velocity=true"
+    ],
+    "epochs_run": 6,
+    "best_val_greedy_cer": 0.41478145752813894,
+    "val_beam_cer": 0.3647599604140569,
+    "test_cer": 0.40806134943960953,
+    "test_ci95": [
+      0.3907409744650388,
+      0.4252755420514396
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.2543624600919167
+  },
+  "a4_strong_aug": {
+    "overrides": [
+      "data.augment=strong"
+    ],
+    "epochs_run": 6,
+    "best_val_greedy_cer": 0.4129315809337935,
+    "val_beam_cer": 0.35485037957747056,
+    "test_cer": 0.3986448468477389,
+    "test_ci95": [
+      0.3811775651120723,
+      0.4154835382396173
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.24039716888331342
+  },
+  "a5_all": {
+    "overrides": [
+      "model.ctc=true",
+      "train.ctc_weight=0.3",
+      "model.max_seq_len=128",
+      "model.velocity=true",
+      "data.augment=strong"
+    ],
+    "epochs_run": 10,
+    "best_val_greedy_cer": 0.3868610990675738,
+    "val_beam_cer": 0.3920075713783972,
+    "test_cer": 0.4359380636535047,
+    "test_ci95": [
+      0.41502005983497786,
+      0.454903400604442
+    ],
+    "test_signers": 14,
+    "test_signer_std": 0.2796580926415658
+  }
+}

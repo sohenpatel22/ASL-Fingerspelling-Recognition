@@ -15,7 +15,7 @@ from asl.config import DecodeConfig, load_config
 from asl.data import build_datasets
 from asl.decode import beam_search
 from asl.lm import CharNgramLM
-from asl.metrics import bootstrap_ci, cer, exact_match, group_cer, mean_cer
+from asl.metrics import bootstrap_ci, cer, corpus_cer, exact_match, group_cer, mean_cer
 from asl.model import ASLConformerSeq2Seq
 from asl.train import resolve_device
 from asl.vocab import Vocab
@@ -55,6 +55,7 @@ def evaluate_dataset(
     result: dict[str, Any] = {
         "n_samples": n,
         "cer": mean_cer(preds, tgts),
+        "cer_micro": corpus_cer(preds, tgts),
         "cer_ci95": [lo, hi],
         "exact_match": exact_match(preds, tgts),
         "beam_width": decode_cfg.beam_width,
@@ -69,9 +70,14 @@ def evaluate_dataset(
         result["cer_signer_mean"] = float(np.mean(vals))
         result["cer_signer_std"] = float(np.std(vals))
         result["cer_by_signer"] = by_signer
-    result["examples"] = [
-        {"target": t, "prediction": p} for p, t in list(zip(preds, tgts, strict=True))[:20]
+    has_signers = df is not None and "participant_id" in df.columns
+    signers = df["participant_id"].iloc[order].tolist() if has_signers else [None] * len(order)
+    records = [
+        {"signer": str(s), "target": t, "prediction": p, "cer": cer(p, t) if t else None}
+        for s, p, t in zip(signers, preds, tgts, strict=True)
     ]
+    result["predictions"] = records
+    result["examples"] = [{"target": r["target"], "prediction": r["prediction"]} for r in records[:20]]
     return result
 
 
@@ -127,7 +133,7 @@ def main(argv: list[str] | None = None) -> None:
     result = evaluate_dataset(
         model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm, args.sample_seed
     )
-    summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples")}
+    summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples", "predictions")}
     print(json.dumps(summary, indent=2))
     for path, payload in ((args.out, summary), (args.details_out, result)):
         if path:

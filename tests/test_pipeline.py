@@ -243,3 +243,20 @@ def test_init_from_accepts_a_hub_path(tmp_path, monkeypatch, tiny_cfg, vocab, ti
     monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
     assert fetch_hub_file("hf:SohenP/asl-fingerspelling-conformer/asl_v5_best.pth") == saved
     assert calls == {"repo_id": "SohenP/asl-fingerspelling-conformer", "filename": "asl_v5_best.pth"}
+
+
+def test_corpus_cer_weights_long_phrases_and_evaluation_keeps_every_prediction(tiny_cfg, tiny_model, vocab):
+    from asl.config import DecodeConfig
+    from asl.data import SyntheticDataset
+    from asl.evaluate import evaluate_dataset
+    from asl.metrics import corpus_cer, mean_cer
+
+    # one perfect short phrase and one fully wrong long phrase
+    assert mean_cer(["ab", "xxxxxxxx"], ["ab", "yyyyyyyy"]) == pytest.approx(0.5)
+    assert corpus_cer(["ab", "xxxxxxxx"], ["ab", "yyyyyyyy"]) == pytest.approx(0.8)
+
+    ds = SyntheticDataset(12, vocab, tiny_cfg.model, seed=5)
+    res = evaluate_dataset(tiny_model, ds, vocab, DecodeConfig(2, 0.6), 8, max_samples=9)
+    assert len(res["predictions"]) == 9
+    assert {"signer", "target", "prediction", "cer"} <= set(res["predictions"][0])
+    assert res["cer_micro"] >= 0 and len(res["examples"]) == 9

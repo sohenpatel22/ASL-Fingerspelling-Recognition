@@ -299,3 +299,48 @@ def test_average_weights_is_the_mean_and_keeps_integer_buffers(tiny_cfg, vocab, 
     torch.testing.assert_close(load_state_dict_only(tmp_path / "s.pth")[key], avg[key])
     with pytest.raises(ValueError, match="different parameter names"):
         average_weights([a.state_dict(), {"other": torch.zeros(1)}])
+
+
+def test_ema_trails_the_live_weights_and_is_what_gets_saved(tiny_cfg, vocab, tmp_path):
+    from asl.checkpoint import load_checkpoint
+
+    tiny_cfg.data.synthetic_size = 64
+    tiny_cfg.train.epochs, tiny_cfg.train.ema_decay = 2, 0.9
+    data = build_datasets(tiny_cfg, vocab)
+    model = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    trainer = Trainer(tiny_cfg, model, vocab, data["train"], data["val"], torch.device("cpu"))
+    start = trainer.ema.decoder.fc_out.weight.clone()
+    trainer.fit()
+    live, avg = trainer.model.decoder.fc_out.weight, trainer.ema.decoder.fc_out.weight
+    assert not torch.equal(avg, live) and not torch.equal(avg, start)
+    saved, _, _ = load_checkpoint(tmp_path / "run" / "last.pth")
+    torch.testing.assert_close(saved.decoder.fc_out.weight, avg.detach())
+
+
+def test_epoch_fraction_shortens_the_epoch(tiny_cfg, vocab):
+    tiny_cfg.data.synthetic_size = 128
+    data = build_datasets(tiny_cfg, vocab)
+    lengths = []
+    for fraction in (1.0, 0.25):
+        tiny_cfg.train.epoch_fraction = fraction
+        model = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+        trainer = Trainer(tiny_cfg, model, vocab, data["train"], data["val"], torch.device("cpu"))
+        lengths.append(len(trainer.train_loader))
+    assert lengths == [4, 1]
+
+
+def test_eval_cli_overrides_the_checkpoint_decode_settings(tmp_path, tiny_cfg, tiny_model, vocab):
+    import json
+
+    from asl.checkpoint import save_checkpoint
+    from asl.evaluate import main as eval_main
+
+    ckpt = save_checkpoint(tmp_path / "m.pth", tiny_model, tiny_cfg.model, vocab, tiny_cfg.decode)
+    out = tmp_path / "o.json"
+    base = ["--checkpoint", str(ckpt), "--config", "configs/smoke.yaml", "--max-samples", "4"]
+    base += ["--out", str(out)]
+    eval_main([*base, "--length-penalty", "0.1", "--beam-width", "2"])
+    shown = json.loads(out.read_text())
+    assert (shown["beam_width"], shown["length_penalty"]) == (2, 0.1)
+    eval_main(base)
+    assert json.loads(out.read_text())["length_penalty"] == tiny_cfg.decode.length_penalty

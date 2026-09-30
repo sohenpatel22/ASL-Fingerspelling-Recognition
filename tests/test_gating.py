@@ -66,3 +66,27 @@ def test_app_warns_when_hands_are_rarely_detected(monkeypatch):
         monkeypatch.setattr(asl_app, "extract_landmarks", lambda path, r=rate: (np.zeros((40, 84)), r))
         summary, _ = asl_app.translate("clip.mp4", "None", False)
         assert summary.startswith("Warning") is warned and "hello" in summary
+
+
+def _flag_records(seed, n=400):
+    rng = np.random.default_rng(seed)
+    hand = rng.uniform(0.05, 1.0, n)
+    conf = np.clip(hand * 0.6 + rng.uniform(0.0, 0.5, n), 0, 1)
+    failed = (hand < 0.3) | (conf < 0.4)
+    cer = np.where(failed, rng.uniform(0.9, 1.0, n), rng.uniform(0.0, 0.2, n))
+    return [
+        {"cer": float(c), "confidence": float(f), "hand_rate": float(h)}
+        for c, f, h in zip(cer, conf, hand, strict=True)
+    ]
+
+
+def test_flag_rule_is_fitted_on_one_set_and_helps_on_another():
+    from asl.gating import apply_flag_rule, pick_flag_rule
+
+    rule = pick_flag_rule(_flag_records(0), max_flagged=0.4)
+    assert 0 < rule["confidence_min"] <= 0.95 and rule["val_flagged_share"] <= 0.4
+    held_out = apply_flag_rule(_flag_records(1), rule)
+    assert held_out["accepted_cer"] < 0.5 * held_out["all_cer"]
+    assert held_out["caught_catastrophic"] > 0.8
+    with pytest.raises(ValueError):
+        pick_flag_rule(_flag_records(0), max_flagged=0.0)

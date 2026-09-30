@@ -61,3 +61,36 @@ def summarize_gating(records: Sequence[dict], cutoff: float = 0.9) -> dict:
         out["auroc"][key] = auroc([-v for v, _ in rows], [b for _, b in rows])
         out["curves"][key] = coverage_curve(usable, key)
     return out
+
+
+def apply_flag_rule(records: Sequence[dict], rule: dict, cutoff: float = 0.9) -> dict:
+    # a clip is flagged when its confidence or its hand rate is below the rule's minimum
+    usable = [r for r in records if r.get("cer") is not None]
+    flagged = np.array(
+        [r["confidence"] < rule["confidence_min"] or r["hand_rate"] < rule["hand_rate_min"] for r in usable]
+    )
+    cer = np.array([r["cer"] for r in usable])
+    bad = cer >= cutoff
+    return {
+        "flagged_share": float(flagged.mean()),
+        "accepted_cer": float(cer[~flagged].mean()) if (~flagged).any() else float("nan"),
+        "all_cer": float(cer.mean()),
+        "caught_catastrophic": float((flagged & bad).sum() / bad.sum()) if bad.any() else float("nan"),
+    }
+
+
+def pick_flag_rule(records: Sequence[dict], max_flagged: float = 0.35) -> dict:
+    # choose the two thresholds that leave the lowest error on the accepted clips while flagging at
+    # most max_flagged of them; meant to be fitted on validation records and applied to test
+    best = None
+    for conf_min in np.arange(0.30, 0.96, 0.05):
+        for hand_min in np.arange(0.0, 0.51, 0.05):
+            rule = {"confidence_min": round(float(conf_min), 2), "hand_rate_min": round(float(hand_min), 2)}
+            stats = apply_flag_rule(records, rule)
+            if stats["flagged_share"] > max_flagged or np.isnan(stats["accepted_cer"]):
+                continue
+            if best is None or stats["accepted_cer"] < best[1]["accepted_cer"]:
+                best = (rule, stats)
+    if best is None:
+        raise ValueError("no rule satisfies the flagging budget")
+    return {**best[0], **{f"val_{k}": v for k, v in best[1].items()}}

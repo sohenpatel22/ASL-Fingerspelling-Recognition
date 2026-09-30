@@ -111,3 +111,13 @@ def test_drift_monitor_needs_enough_samples():
     for i in range(10):
         monitor.observe(landmark_stats(_landmarks(seed=i)))
     assert monitor.scores() == {}
+
+
+def test_low_hand_visibility_is_flagged_and_counted(client, monkeypatch):
+    for rate in (0.1, 0.9):
+        monkeypatch.setattr("asl.video.extract_landmarks", lambda path, r=rate: (_landmarks(40), r))
+        body = client.post("/predict", files={"video": ("clip.mp4", b"x", "video/mp4")}).json()
+        assert body["low_hand_visibility"] is (rate < 0.3)
+    assert "asl_low_visibility_total 1.0" in client.get("/metrics").text
+    plain = client.post("/predict/landmarks", json={"landmarks": _landmarks().tolist()}).json()
+    assert plain["low_hand_visibility"] is False  # unknown detection rate is never flagged

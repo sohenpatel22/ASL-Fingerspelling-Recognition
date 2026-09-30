@@ -24,6 +24,7 @@ from prometheus_client import (
 from pydantic import BaseModel
 
 from asl.checkpoint import resolve_checkpoint
+from asl.gating import low_visibility
 from asl.infer import Predictor
 from asl.monitoring import DriftMonitor, landmark_stats
 from asl.video import NoHandsDetected
@@ -61,6 +62,9 @@ class Metrics:
             buckets=(8, 16, 32, 64, 128, 256, 512),
         )
         self.no_hands = Counter("asl_no_hands_total", "videos with no detectable hands", registry=r)
+        self.low_visibility = Counter(
+            "asl_low_visibility_total", "videos where hands were found in too few frames", registry=r
+        )
         self.drift = Gauge("asl_input_drift_psi", "PSI vs training data", ["feature"], registry=r)
         self.info = Gauge("asl_model_info", "loaded model", ["version"], registry=r)
 
@@ -148,13 +152,16 @@ def create_app(
             _finish(endpoint, 422, started, request_id, error=str(err))
             raise HTTPException(422, str(err)) from err
         metrics.confidence.observe(pred.confidence)
+        if low_visibility(detection_rate):
+            metrics.low_visibility.inc()
         _finish(
             endpoint, 200, started, request_id,
             chars=len(pred.text), confidence=round(pred.confidence, 3),
         )
         return {
             "text": pred.text, "confidence": pred.confidence, "n_frames": pred.n_frames,
-            "hand_detection_rate": detection_rate, "model_version": state["version"],
+            "hand_detection_rate": detection_rate, "low_hand_visibility": low_visibility(detection_rate),
+            "model_version": state["version"],
             "request_id": request_id,
         }
 

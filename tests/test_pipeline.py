@@ -260,3 +260,22 @@ def test_corpus_cer_weights_long_phrases_and_evaluation_keeps_every_prediction(t
     assert len(res["predictions"]) == 9
     assert {"signer", "target", "prediction", "cer"} <= set(res["predictions"][0])
     assert res["cer_micro"] >= 0 and len(res["examples"]) == 9
+
+
+def test_evaluation_records_confidence_and_hand_rate(tmp_path, tiny_cfg, tiny_model, vocab):
+    import pandas as pd
+
+    from asl.config import DecodeConfig, ModelConfig
+    from asl.data import ASLDataset
+    from asl.evaluate import evaluate_dataset
+
+    for seq_id, missing in ((1, 0.0), (2, 0.5)):
+        seq = np.random.default_rng(seq_id).uniform(0.1, 0.9, (20, 84)).astype(np.float32)
+        seq[int(20 * (1 - missing)) :] = 0.0  # the hand disappears for the last part of the clip
+        np.save(tmp_path / f"{seq_id}.npy", seq)
+    df = pd.DataFrame({"sequence_id": [1, 2], "phrase": ["ab", "cd"], "participant_id": [7, 7]})
+    ds = ASLDataset(df, tmp_path, vocab, ModelConfig(**{**tiny_cfg.model.__dict__}))
+    res = evaluate_dataset(tiny_model, ds, vocab, DecodeConfig(2, 0.6), 8)
+    rec = res["predictions"]
+    assert [round(r["hand_rate"], 2) for r in rec] == [1.0, 0.5]
+    assert all(0 < r["confidence"] <= 1 for r in rec)

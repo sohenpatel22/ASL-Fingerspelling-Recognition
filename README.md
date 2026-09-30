@@ -101,34 +101,40 @@ asl-promote --name asl-fingerspelling --metrics metrics/test.json --max-cer 0.45
 
 ## Improving accuracy
 
-The v5 model has a test CER of 0.44, which I want to bring down. Everything below is implemented
-and unit tested, and each piece is off by default so old checkpoints and configs keep working.
-**None of it has been trained on the real data yet, so there are no accuracy claims here.**
+I tried five ideas to bring down the v5 model's error, plus a language model, all switchable in
+config and unit tested. Then I ran a proper ablation on Kaggle (T4, about 5 hours): every variant
+warm-started from the same v5 weights, trained on the same signer-independent split, and scored with
+beam search on a seeded random 3000-clip sample of the held-out signers (14 people).
 
-| idea | switch | why |
-|---|---|---|
-| CTC loss next to the attention loss | `model.ctc=true train.ctc_weight=0.3` | attention decoders hallucinate on short or unclear clips; CTC keeps the encoder aligned to characters |
-| longer clips | `model.max_seq_len=128` | 64 frames is a heavy squeeze for a long phrase |
-| velocity features | `model.velocity=true` | finger motion, not just pose, separates similar letters |
-| stronger augmentation | `data.augment=strong` | rotation, aspect jitter and "missed hand" spans, for unseen signers |
-| character language model | `asl-lm`, `decode.lm_weight` | phrases are addresses, numbers and URLs with strong structure |
-| signer cross-validation | `asl-cv --folds 5` | one test split of ~14 signers is noisy; this gives mean and std |
+| run | what changed | val CER (beam) | test CER (beam) |
+|---|---|---|---|
+| a0_baseline | fine-tune v5 with this repo's trainer and the supplemental data | 0.350 | **0.399** |
+| a1_ctc | + CTC loss next to the attention loss | 0.383 | 0.433 |
+| a2_len128 | 128 frames instead of 64 | 0.407 | 0.450 |
+| a3_velocity | + frame-to-frame velocity features | 0.365 | 0.408 |
+| a4_strong_aug | + rotation, aspect jitter, missed-hand spans | 0.355 | 0.399 |
+| a5_all | all four together | 0.392 | 0.436 |
 
-`asl-ablate` warm-starts every variant from the same v5 weights, trains each on the same split and
-scores a seeded random subset of validation and test with beam search. It writes a table like the
-one below and saves after every run:
+Numbers are in `reports/phase4/`. What I take from them:
 
-| run | val CER (greedy, best epoch) | val CER (beam) | test CER (beam) | test 95% CI | signers |
-|---|---|---|---|---|---|
-| a0_baseline ... a5_all | to be filled in from the Kaggle run | | | | |
+- **None of the ideas helped.** Compared per signer against the baseline, CTC, 128 frames and the
+  combined model were worse (CTC was worse for all 14 signers), velocity was very slightly worse and
+  strong augmentation made no difference. Negative results, but measured ones.
+- **The character language model didn't help either.** Tuned on validation, the best weight was 0,
+  and larger weights made things worse (val CER 0.350 at weight 0 against 0.460 at 0.5).
+- **The baseline got its best validation score after one epoch** and then drifted worse, so it
+  overfits the training signers quickly. The bottleneck looks like generalisation to new signers,
+  not model capacity or input features.
+- **Signers differ enormously.** Baseline per-signer test CER runs from 0.05 to 0.96 (four of the 14
+  signers are above 0.68), so a 0.03 gap between variants is small next to that spread. I compared
+  variants on the same signers for that reason, but 14 signers is still a small test set.
+- **The 0.399 is not yet a like-for-like improvement on the 0.44 I started with.** That figure came
+  from a different evaluation (the full test set, different training run). I haven't scored the raw
+  v5 weights with this exact protocol, so I can't say how much of the gap is real.
 
-Choices are made on validation only: the best variant is picked by validation CER, the language
-model weight is tuned on validation, and the test set is scored once at the end. Cross-validation
-has to train from scratch, because the v5 weights have already seen most signers.
-
-The GPU runs happen on Kaggle, where the competition data lives. `kaggle/preprocess` and
-`kaggle/train` are two small notebooks that clone this repo and call the commands above, so the
-logic stays in the package.
+Choices were made on validation only (variant, language model weight), and test was scored once at
+the end. Cross-validation (`asl-cv`) has to train from scratch because v5 has already seen most
+signers, so I haven't run it.
 
 ## Serving
 
@@ -259,7 +265,8 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- run the ablations on Kaggle and report what actually helped (see "Improving accuracy")
+- score the raw v5 weights with the same protocol, and find out why some signers are near 0.9 CER
+- try things aimed at signer generalisation (weight averaging, more regularisation) instead of more features
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

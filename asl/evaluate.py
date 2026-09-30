@@ -92,6 +92,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", default=None)
     parser.add_argument("--split", choices=["val", "test"], default="test")
     parser.add_argument("--max-samples", type=int, default=None)
+    parser.add_argument("--beam-width", type=int, default=None, help="overrides the checkpoint's value")
+    parser.add_argument("--length-penalty", type=float, default=None, help="overrides the checkpoint's value")
     parser.add_argument("--sample-seed", type=int, default=None, help="pick a random subset with this seed")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--out", default=None, help="write summary metrics json here")
@@ -108,8 +110,12 @@ def main(argv: list[str] | None = None) -> None:
     model, vocab, ckpt = load_checkpoint(args.checkpoint, device, allow_unsafe=args.allow_unsafe)
     cfg.model = ckpt["_model_config"]  # data must match the model, whatever the config says
     decode_cfg = DecodeConfig(
-        beam_width=int(ckpt.get("beam_width", cfg.decode.beam_width)),
-        length_penalty=float(ckpt.get("length_penalty", cfg.decode.length_penalty)),
+        beam_width=args.beam_width or int(ckpt.get("beam_width", cfg.decode.beam_width)),
+        length_penalty=(
+            args.length_penalty
+            if args.length_penalty is not None
+            else float(ckpt.get("length_penalty", cfg.decode.length_penalty))
+        ),
         lm_path=cfg.decode.lm_path,
         lm_weight=cfg.decode.lm_weight,
     )

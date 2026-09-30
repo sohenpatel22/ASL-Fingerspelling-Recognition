@@ -4,7 +4,7 @@
 [![Hugging Face Space](https://img.shields.io/badge/demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/SohenP/asl-fingerspelling)
 
 **Live demo:** https://huggingface.co/spaces/SohenP/asl-fingerspelling (record or upload a short
-fingerspelling clip; it runs the v5 model, test CER about 0.33, on a free ZeroGPU Space)
+fingerspelling clip; it runs the v5 last-epoch checkpoint, test CER about 0.32, on a free ZeroGPU Space)
 
 Turns a short video of ASL fingerspelling into text. MediaPipe pulls hand landmarks out of the
 video, a Conformer encoder + Transformer decoder reads them, and beam search produces the
@@ -33,8 +33,8 @@ clips from the 14 held-out signers.
 
 | model | test CER (mean per clip) | test CER (total edits / total characters) |
 |---|---|---|
-| v5 weights as currently deployed (`best` checkpoint) | 0.334 | 0.322 |
-| **v5 last-epoch checkpoint** (picked on validation) | **0.321** | **0.308** |
+| v5 `best` checkpoint (what the Space served before) | 0.334 | 0.322 |
+| **v5 last-epoch checkpoint** (picked on validation, now on the Space) | **0.321** | **0.308** |
 | v5 fine-tuned again with this repo's trainer | 0.399 | |
 
 The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
@@ -58,7 +58,7 @@ Two things came out of following this up (`reports/phase4/candidates/`):
   teacher-forced score, but what matters is the decoded text. Scored on validation, the last epoch
   was best of five candidates (best, final, last, and their average), and on test it is 0.013 better
   than the deployed checkpoint (paired over signers: better for 12 of 14, interval -0.019 to -0.007).
-  The Space still serves the old checkpoint.
+  The Space now serves the last-epoch checkpoint.
 - **The model's own confidence tells you when it is wrong.** Confidence alone separates the failed
   clips with an AUROC of 0.89 (hand detection rate alone, 0.86). If you only accept the most confident
   70% of clips, the error on those drops from 0.32 to 0.11; a rule like "flag a clip when confidence
@@ -241,8 +241,8 @@ The demo runs as a Gradio Space on ZeroGPU, which is what a free Hugging Face ac
 minutes of GPU time a day, and one clip takes about a second. The weights live in a Hugging Face
 model repo and the Space downloads them at startup, so nothing big goes in git.
 
-1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer checkpoints/v5/asl_v5_best.pth asl_v5_best.pth`
-   and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
+1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer asl_v5_last.pth asl_v5_last.pth`
+   and set the Space variable `ASL_MODEL_FILE=asl_v5_last.pth` (the repo name defaults to
    `SohenP/asl-fingerspelling-conformer`).
 2. Create a Gradio Space with **ZeroGPU** hardware, or let the script do it:
    `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
@@ -291,7 +291,6 @@ Dockerfile, docker-compose.yml
 
 - a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
 - choose the flag thresholds on validation, then put them in the app (it currently uses hand rate only, 0.30)
-- serve the last-epoch checkpoint on the Space
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

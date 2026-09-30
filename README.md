@@ -33,7 +33,8 @@ clips from the 14 held-out signers.
 
 | model | test CER (mean per clip) | test CER (total edits / total characters) |
 |---|---|---|
-| **v5 weights, as deployed** | **0.334** | **0.322** |
+| v5 weights as currently deployed (`best` checkpoint) | 0.334 | 0.322 |
+| **v5 last-epoch checkpoint** (picked on validation) | **0.321** | **0.308** |
 | v5 fine-tuned again with this repo's trainer | 0.399 | |
 
 The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
@@ -50,6 +51,20 @@ What the errors look like (v5, same 3000 clips):
 - Which signer it is matters more than anything else. Per-signer CER runs from 0.03 to 0.78 and
   correlates at -0.96 with how often MediaPipe found a hand in that signer's frames (signers with a
   hand detected in under a third of frames are at 0.6 to 0.8 CER).
+
+Two things came out of following this up (`reports/phase4/candidates/`):
+
+- **The last v5 checkpoint beats the "best" one.** The original run kept the checkpoint with the best
+  teacher-forced score, but what matters is the decoded text. Scored on validation, the last epoch
+  was best of five candidates (best, final, last, and their average), and on test it is 0.013 better
+  than the deployed checkpoint (paired over signers: better for 12 of 14, interval -0.019 to -0.007).
+  The Space still serves the old checkpoint.
+- **The model's own confidence tells you when it is wrong.** Confidence alone separates the failed
+  clips with an AUROC of 0.89 (hand detection rate alone, 0.86). If you only accept the most confident
+  70% of clips, the error on those drops from 0.32 to 0.11; a rule like "flag a clip when confidence
+  is below 0.6 or hands are found in under 30% of frames" flags a third of clips, catches about 95% of
+  the failed ones and leaves 0.10 CER on the rest. Those thresholds were looked at on test, so they
+  are optimistic until I pick them on validation.
 
 ## Setup
 
@@ -275,7 +290,8 @@ Dockerfile, docker-compose.yml
 ## Still to do
 
 - a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
-- measure how well hand detection and confidence flag the failures (`asl/gating.py`, running on Kaggle) and tune the warning threshold from it
+- choose the flag thresholds on validation, then put them in the app (it currently uses hand rate only, 0.30)
+- serve the last-epoch checkpoint on the Space
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

@@ -1,0 +1,16 @@
+{
+  "n_samples": 1000,
+  "cer": 0.2781021299524906,
+  "cer_micro": 0.2741151193034038,
+  "cer_ci95": [
+    0.2539734675690806,
+    0.302088025161925
+  ],
+  "exact_match": 0.427,
+  "beam_width": 5,
+  "length_penalty": 0.4,
+  "lm_weight": 0.0,
+  "n_signers": 14,
+  "cer_signer_mean": 0.334309628569143,
+  "cer_signer_std": 0.2478781757956576
+}

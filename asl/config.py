@@ -57,6 +57,8 @@ class TrainConfig:
     scheduler: str = "cosine"
     min_lr_ratio: float = 0.0
     label_smoothing: float = 0.20
+    ema_decay: float = 0.0  # > 0 keeps a moving average of the weights and evaluates/saves that
+    epoch_fraction: float = 1.0  # < 1 makes each "epoch" a random subset, for finer early stopping
     ctc_weight: float = 0.0  # 0 = attention loss only; needs model.ctc=true when above 0
     grad_clip: float = 1.0
     num_workers: int = 2

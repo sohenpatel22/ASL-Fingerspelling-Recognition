@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import random
@@ -14,7 +15,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset, RandomSampler, Subset
 from tqdm import tqdm
 
 from asl.checkpoint import (
@@ -93,9 +94,13 @@ class Trainer:
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
         pin = device.type == "cuda"
+        sampler = None
+        if t.epoch_fraction < 1.0:
+            sampler = RandomSampler(train_ds, num_samples=max(1, int(len(train_ds) * t.epoch_fraction)))
         self.train_loader = DataLoader(
-            train_ds, batch_size=t.batch_size, shuffle=True, num_workers=t.num_workers,
-            pin_memory=pin, persistent_workers=t.num_workers > 0, drop_last=False,
+            train_ds, batch_size=t.batch_size, shuffle=sampler is None, sampler=sampler,
+            num_workers=t.num_workers, pin_memory=pin, persistent_workers=t.num_workers > 0,
+            drop_last=False,
         )
         self.val_loader = DataLoader(
             val_ds, batch_size=t.eval_batch_size, shuffle=False, num_workers=0, pin_memory=pin
@@ -115,10 +120,24 @@ class Trainer:
         self.use_amp = t.amp and device.type == "cuda"
         self.scaler = torch.amp.GradScaler(device.type, enabled=self.use_amp)
 
+        self.ema = copy.deepcopy(model).eval() if t.ema_decay > 0 else None
         self.history: list[dict[str, float]] = []
         self.best_cer = float("inf")
         self.bad_epochs = 0
         self.start_epoch = 1
+
+    @property
+    def eval_model(self) -> ASLConformerSeq2Seq:
+        # validation and checkpoints use the averaged weights when EMA is on
+        return self.ema if self.ema is not None else self.model
+
+    @torch.no_grad()
+    def _update_ema(self) -> None:
+        decay = self.cfg.train.ema_decay
+        for avg, p in zip(self.ema.parameters(), self.model.parameters(), strict=True):
+            avg.mul_(decay).add_(p.detach(), alpha=1 - decay)
+        for avg_b, b in zip(self.ema.buffers(), self.model.buffers(), strict=True):
+            avg_b.copy_(b)
 
     def _autocast(self):
         return torch.autocast(device_type=self.device.type, enabled=self.use_amp)
@@ -177,30 +196,33 @@ class Trainer:
                 self.scaler.update()
                 self.optimizer.zero_grad(set_to_none=True)
                 self.scheduler.step()
+                if self.ema is not None:
+                    self._update_ema()
             total_loss += loss.item()
             total_acc += self._token_acc(logits.detach(), target)
         return total_loss / n_batches, total_acc / n_batches
 
     @torch.no_grad()
     def validate(self) -> dict[str, float]:
-        self.model.eval()
+        model = self.eval_model
+        model.eval()
         loss = acc = 0.0
         n = 0
         for x, y in self.val_loader:
             x, y = x.to(self.device), y.to(self.device)
             target = y[:, 1:].contiguous()
             with self._autocast():
-                logits = self.model(x, y[:, :-1])
+                logits = model(x, y[:, :-1])
             loss += self._loss(logits, target).item()
             acc += self._token_acc(logits, target)
             n += 1
 
         preds, ctc_preds, tgts = [], [], []
-        has_ctc = self.model.ctc_head is not None
+        has_ctc = model.ctc_head is not None
         for x, y in self.eval_loader:
             x = x.to(self.device)
-            decoded = greedy_decode(self.model, x, self.vocab, self.cfg.model.max_phrase_len)
-            ctc_decoded = ctc_greedy_decode(self.model, x, self.vocab) if has_ctc else decoded
+            decoded = greedy_decode(model, x, self.vocab, self.cfg.model.max_phrase_len)
+            ctc_decoded = ctc_greedy_decode(model, x, self.vocab) if has_ctc else decoded
             for p, c, t in zip(decoded, ctc_decoded, y.tolist(), strict=True):
                 preds.append(self.vocab.decode(p))
                 ctc_preds.append(self.vocab.decode(c))
@@ -217,7 +239,7 @@ class Trainer:
 
     def _save(self, name: str, metrics: dict[str, float], epoch: int) -> None:
         save_checkpoint(
-            self.out_dir / name, self.model, self.cfg.model, self.vocab, self.cfg.decode, metrics,
+            self.out_dir / name, self.eval_model, self.cfg.model, self.vocab, self.cfg.decode, metrics,
             extra={"epoch": epoch, "best_cer": self.best_cer, "bad_epochs": self.bad_epochs},
         )
         torch.save(
@@ -235,6 +257,8 @@ class Trainer:
     def resume(self) -> None:
         model, _, _ = load_checkpoint(self.out_dir / "last.pth", self.device)
         self.model.load_state_dict(model.state_dict())
+        if self.ema is not None:
+            self.ema.load_state_dict(model.state_dict())
         state = torch.load(self.out_dir / "trainer_state.pt", map_location=self.device)
         self.optimizer.load_state_dict(state["optimizer"])
         self.scheduler.load_state_dict(state["scheduler"])

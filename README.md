@@ -153,6 +153,9 @@ asl-serve
 JSON, `GET /health` reports the model version and `GET /metrics` is Prometheus. Each request
 also writes a JSON log line. The metrics cover request rate and latency, beam search time,
 prediction confidence, how many frames had a hand in them, and videos with no hands at all.
+Responses also carry `low_hand_visibility` (hands found in under 30% of frames, tunable with
+`ASL_MIN_HAND_RATE`) and there is a matching counter, because that is when the model makes text up. The
+demo prints a warning in the same case.
 
 For drift monitoring, build a reference from the training data and point the service at it:
 
@@ -272,7 +275,7 @@ Dockerfile, docker-compose.yml
 ## Still to do
 
 - a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
-- have the app warn when the hand is rarely detected, since that is when the model makes things up
+- measure how well hand detection and confidence flag the failures (`asl/gating.py`, running on Kaggle) and tune the warning threshold from it
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

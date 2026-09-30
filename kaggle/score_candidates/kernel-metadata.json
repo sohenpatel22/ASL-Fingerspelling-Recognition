@@ -1,0 +1,20 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-score-candidates",
+  "title": "ASL Fingerspelling Score Candidates",
+  "code_file": "score_candidates.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [
+    "sohenpatel/asl-fingerspelling-preprocess",
+    "patrickthang/group-12-asl"
+  ],
+  "model_sources": []
+}

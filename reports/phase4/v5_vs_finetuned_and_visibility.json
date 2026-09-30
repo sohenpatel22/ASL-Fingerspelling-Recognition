@@ -1,0 +1,25 @@
+{
+  "note": "raw v5 weights scored with the same protocol as the ablation (3000 random test clips, seed 0, beam 5, length penalty 0.6)",
+  "fine_tuned_baseline_minus_raw_v5": {
+    "mean_diff": 0.0649,
+    "ci95": [
+      0.0465,
+      0.0886
+    ],
+    "signers_where_fine_tuning_helped": 0,
+    "signers": 14
+  },
+  "correlation_of_signer_cer_with_visibility": {
+    "any_hand": -0.959,
+    "both_hands": -0.287,
+    "left": -0.089,
+    "right": -0.938,
+    "frames": -0.282,
+    "frames_per_char": -0.344
+  },
+  "clip_error_distribution": {
+    "perfect": 0.356,
+    "catastrophic_ge_0.9": 0.116,
+    "error_mass_from_clips_ge_0.6": 0.722
+  }
+}

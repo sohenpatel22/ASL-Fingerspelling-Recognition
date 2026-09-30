@@ -4,7 +4,7 @@
 [![Hugging Face Space](https://img.shields.io/badge/demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/SohenP/asl-fingerspelling)
 
 **Live demo:** https://huggingface.co/spaces/SohenP/asl-fingerspelling (record or upload a short
-fingerspelling clip; it runs the v5 model, test CER 0.44, on a free ZeroGPU Space)
+fingerspelling clip; it runs the v5 model, test CER about 0.33, on a free ZeroGPU Space)
 
 Turns a short video of ASL fingerspelling into text. MediaPipe pulls hand landmarks out of the
 video, a Conformer encoder + Transformer decoder reads them, and beam search produces the
@@ -27,21 +27,29 @@ hand sits in the frame. The model has about 27.8M parameters.
 
 ## Results
 
-Split is 70/15/15 by signer, so val and test signers never show up in training. These numbers
-come from the original notebooks.
+Split is 70/15/15 by signer, so val and test signers never show up in training. The number I trust
+is the one from `reports/phase4/`, scored with beam search on a seeded random sample of 3000 test
+clips from the 14 held-out signers.
 
-| | |
-|---|---|
-| Test CER (beam 5, length penalty 0.6) | 0.43 |
-| v5 baseline test CER | 0.44 |
-| Val CER with beam search | about 0.33 (first 200 val samples) |
+| model | test CER (mean per clip) | test CER (total edits / total characters) |
+|---|---|---|
+| **v5 weights, as deployed** | **0.334** | **0.322** |
+| v5 fine-tuned again with this repo's trainer | 0.399 | |
 
-A few caveats. The "CER" printed each epoch in the v6 notebook was computed from teacher-forced
-predictions, so it looks better than the model really is at inference. The trainer in this repo
-early-stops on greedy-decoded CER instead. The test set is only ~15% of the signers, so it's a
-noisy number; `asl-eval` also prints per-signer CER and a bootstrap interval. And adding the 50K
-supplemental sequences only moved test CER by about 0.01, so more data alone isn't going to fix
-this.
+The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
+compared with these. For scale: the winning Kaggle solutions scored about 0.81 to 0.82 on the
+competition's metric (roughly 0.18 to 0.19 in these units, same idea as the second column).
+
+What the errors look like (v5, same 3000 clips):
+
+- They are lumpy, not spread out. 36% of clips are decoded perfectly, and the 12% of clips with
+  CER of 0.9 or more account for 72% of all the error.
+- Most of those failures are not near misses. In two thirds of them the model outputs a different
+  *kind* of phrase than the one signed (a phone number comes out as an address) and the output is
+  longer than the target, as if the decoder made up something fluent when it couldn't see the hands.
+- Which signer it is matters more than anything else. Per-signer CER runs from 0.03 to 0.78 and
+  correlates at -0.96 with how often MediaPipe found a hand in that signer's frames (signers with a
+  hand detected in under a third of frames are at 0.6 to 0.8 CER).
 
 ## Setup
 
@@ -101,14 +109,14 @@ asl-promote --name asl-fingerspelling --metrics metrics/test.json --max-cer 0.45
 
 ## Improving accuracy
 
-I tried five ideas to bring down the v5 model's error, plus a language model, all switchable in
-config and unit tested. Then I ran a proper ablation on Kaggle (T4, about 5 hours): every variant
-warm-started from the same v5 weights, trained on the same signer-independent split, and scored with
-beam search on a seeded random 3000-clip sample of the held-out signers (14 people).
+I tried five ideas to bring the error down, plus a language model, all switchable in config and unit
+tested. Then I ran an ablation on Kaggle (T4, about 5 hours): every variant warm-started from the v5
+weights and trained on the same signer-independent split, and scored with the protocol above.
 
 | run | what changed | val CER (beam) | test CER (beam) |
 |---|---|---|---|
-| a0_baseline | fine-tune v5 with this repo's trainer and the supplemental data | 0.350 | **0.399** |
+| v5 raw | the weights as deployed, no training | | **0.334** |
+| a0_baseline | fine-tune v5 with this repo's trainer and the supplemental data | 0.350 | 0.399 |
 | a1_ctc | + CTC loss next to the attention loss | 0.383 | 0.433 |
 | a2_len128 | 128 frames instead of 64 | 0.407 | 0.450 |
 | a3_velocity | + frame-to-frame velocity features | 0.365 | 0.408 |
@@ -117,24 +125,22 @@ beam search on a seeded random 3000-clip sample of the held-out signers (14 peop
 
 Numbers are in `reports/phase4/`. What I take from them:
 
-- **None of the ideas helped.** Compared per signer against the baseline, CTC, 128 frames and the
-  combined model were worse (CTC was worse for all 14 signers), velocity was very slightly worse and
-  strong augmentation made no difference. Negative results, but measured ones.
-- **The character language model didn't help either.** Tuned on validation, the best weight was 0,
-  and larger weights made things worse (val CER 0.350 at weight 0 against 0.460 at 0.5).
-- **The baseline got its best validation score after one epoch** and then drifted worse, so it
-  overfits the training signers quickly. The bottleneck looks like generalisation to new signers,
-  not model capacity or input features.
-- **Signers differ enormously.** Baseline per-signer test CER runs from 0.05 to 0.96 (four of the 14
-  signers are above 0.68), so a 0.03 gap between variants is small next to that spread. I compared
-  variants on the same signers for that reason, but 14 signers is still a small test set.
-- **The 0.399 is not yet a like-for-like improvement on the 0.44 I started with.** That figure came
-  from a different evaluation (the full test set, different training run). I haven't scored the raw
-  v5 weights with this exact protocol, so I can't say how much of the gap is real.
+- **Nothing beat the v5 weights, and fine-tuning made them worse.** The plain fine-tune (a0) is worse
+  than raw v5 for all 14 signers (0.065 higher on average, paired CI 0.047 to 0.089). I first read
+  a0 as a fair baseline and only caught this once I scored raw v5 with the same protocol.
+- **The ablation was not a fair test of the ideas.** Every variant started from v5 and only trained
+  for a handful of epochs at a low learning rate, so anything that changes the input (128 frames,
+  velocity) or adds a new head (CTC) had to be adapted onto weights trained for something else. A
+  variant that loses here might still win when trained from scratch. What it does show is that
+  bolting these on to v5 doesn't help.
+- **More training on the same signers overfits.** Validation was best after the first epoch and
+  then drifted worse while training accuracy kept climbing.
+- **The character language model didn't help.** Tuned on validation, the best weight was 0.
+- **The remaining error is mostly a data problem.** See the last bullet under Results: it tracks how
+  often the hand is detected, and the model hallucinates when it can't see one.
 
-Choices were made on validation only (variant, language model weight), and test was scored once at
-the end. Cross-validation (`asl-cv`) has to train from scratch because v5 has already seen most
-signers, so I haven't run it.
+Choices were made on validation only, and test was scored once at the end. Cross-validation
+(`asl-cv`) has to train from scratch because v5 has already seen most signers, so I haven't run it.
 
 ## Serving
 
@@ -265,8 +271,8 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- score the raw v5 weights with the same protocol, and find out why some signers are near 0.9 CER
-- try things aimed at signer generalisation (weight averaging, more regularisation) instead of more features
+- a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
+- have the app warn when the hand is rarely detected, since that is when the model makes things up
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

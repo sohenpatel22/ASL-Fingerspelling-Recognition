@@ -36,3 +36,33 @@ def test_summary_finds_hand_rate_more_informative_than_noisy_confidence():
     assert summary["auroc"]["hand_rate"] > 0.95 > summary["auroc"]["confidence"]
     assert 0.2 < summary["catastrophic_share"] < 0.5 and summary["n"] == 200
     assert len(catastrophic([{"cer": 0.95}, {"cer": 0.2}, {"cer": None}])) == 3
+
+
+def test_low_visibility_uses_the_default_and_an_env_override(monkeypatch):
+    from asl.gating import DEFAULT_MIN_HAND_RATE, low_visibility
+
+    monkeypatch.delenv("ASL_MIN_HAND_RATE", raising=False)
+    assert low_visibility(DEFAULT_MIN_HAND_RATE - 0.01) and not low_visibility(DEFAULT_MIN_HAND_RATE + 0.01)
+    assert not low_visibility(None)
+    monkeypatch.setenv("ASL_MIN_HAND_RATE", "0.6")
+    assert low_visibility(0.5) and not low_visibility(0.7)
+    assert low_visibility(0.5, threshold=0.4) is False
+
+
+def test_app_warns_when_hands_are_rarely_detected(monkeypatch):
+    pytest.importorskip("gradio")
+    import sys
+    from types import SimpleNamespace
+
+    sys.path.insert(0, "app")
+    try:
+        import app as asl_app
+    finally:
+        sys.path.remove("app")
+
+    fake = SimpleNamespace(text="hello", confidence=0.7, n_frames=40)
+    monkeypatch.setattr(asl_app, "predict", lambda landmarks: fake)
+    for rate, warned in ((0.1, True), (0.9, False)):
+        monkeypatch.setattr(asl_app, "extract_landmarks", lambda path, r=rate: (np.zeros((40, 84)), r))
+        summary, _ = asl_app.translate("clip.mp4", "None", False)
+        assert summary.startswith("Warning") is warned and "hello" in summary

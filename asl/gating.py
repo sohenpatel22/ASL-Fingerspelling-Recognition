@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Sequence
 
 import numpy as np
+
+# below this share of frames with a detected hand the model tends to make text up
+DEFAULT_MIN_HAND_RATE = 0.30
+
+
+def min_hand_rate() -> float:
+    return float(os.environ.get("ASL_MIN_HAND_RATE", DEFAULT_MIN_HAND_RATE))
+
+
+def low_visibility(rate: float | None, threshold: float | None = None) -> bool:
+    return rate is not None and rate < (min_hand_rate() if threshold is None else threshold)
 
 
 def auroc(scores: Sequence[float], positive: Sequence[bool]) -> float:

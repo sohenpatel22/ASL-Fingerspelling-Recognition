@@ -1,0 +1,19 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-tune",
+  "title": "ASL Fingerspelling Tune",
+  "code_file": "tune.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [
+    "sohenpatel/asl-fingerspelling-preprocess"
+  ],
+  "model_sources": []
+}

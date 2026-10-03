@@ -344,3 +344,12 @@ def test_eval_cli_overrides_the_checkpoint_decode_settings(tmp_path, tiny_cfg, t
     assert (shown["beam_width"], shown["length_penalty"]) == (2, 0.1)
     eval_main(base)
     assert json.loads(out.read_text())["length_penalty"] == tiny_cfg.decode.length_penalty
+
+
+def test_scientific_notation_overrides_are_numbers_not_strings():
+    cfg = load_config(None, ["train.lr=1e-5", "train.weight_decay=5E-4", "train.grad_clip=2"])
+    cfg.train.init_from = load_config(None, ["train.init_from=hf:a/b/c.pth"]).train.init_from
+    assert cfg.train.lr == 1e-5 and isinstance(cfg.train.lr, float)
+    assert cfg.train.weight_decay == 5e-4 and cfg.train.grad_clip == 2
+    assert cfg.train.init_from == "hf:a/b/c.pth"
+    assert load_config(None, ["train.scheduler=none"]).train.scheduler == "none"

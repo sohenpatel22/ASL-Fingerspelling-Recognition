@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -121,6 +122,17 @@ def _build_section(cls: type, raw: dict[str, Any]) -> Any:
     return cls(**raw)
 
 
+_NUMBER = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+
+
+def _parse_value(text: str) -> Any:
+    # yaml reads 1e-5 as a string (it wants 1.0e-5), which is an easy mistake on the command line
+    value = yaml.safe_load(text)
+    if isinstance(value, str) and _NUMBER.fullmatch(value.strip()):
+        return float(value)
+    return value
+
+
 def _set_nested(raw: dict[str, Any], dotted: str, value: Any) -> None:
     keys = dotted.split(".")
     node = raw
@@ -137,7 +149,7 @@ def load_config(path: str | Path | None = None, overrides: list[str] | None = No
         if "=" not in item:
             raise ValueError(f"Override must look like section.key=value, got {item!r}")
         key, value = item.split("=", 1)
-        _set_nested(raw, key.strip(), yaml.safe_load(value))
+        _set_nested(raw, key.strip(), _parse_value(value))
     unknown = set(raw) - set(_SECTIONS)
     if unknown:
         raise KeyError(f"Unknown config sections: {sorted(unknown)}")

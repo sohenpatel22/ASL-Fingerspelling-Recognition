@@ -34,7 +34,8 @@ clips from the 14 held-out signers.
 | model | test CER (mean per clip) | test CER (total edits / total characters) |
 |---|---|---|
 | v5 `best` checkpoint (what the Space served before) | 0.334 | 0.322 |
-| **v5 last-epoch checkpoint** (picked on validation, now on the Space) | **0.321** | **0.308** |
+| v5 last-epoch checkpoint (picked on validation, on the Space now) | 0.321 | 0.308 |
+| **same checkpoint, length penalty 0.0** (picked on validation, not deployed yet) | **0.307** | **0.299** |
 | v5 fine-tuned again with this repo's trainer | 0.399 | |
 
 The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
@@ -52,19 +53,25 @@ What the errors look like (v5, same 3000 clips):
   correlates at -0.96 with how often MediaPipe found a hand in that signer's frames (signers with a
   hand detected in under a third of frames are at 0.6 to 0.8 CER).
 
-Two things came out of following this up (`reports/phase4/candidates/`):
+Three things came out of following this up (`reports/phase4/candidates/` and `reports/phase4/tune/`),
+all chosen on validation and then scored once on test:
 
-- **The last v5 checkpoint beats the "best" one.** The original run kept the checkpoint with the best
-  teacher-forced score, but what matters is the decoded text. Scored on validation, the last epoch
-  was best of five candidates (best, final, last, and their average), and on test it is 0.013 better
-  than the deployed checkpoint (paired over signers: better for 12 of 14, interval -0.019 to -0.007).
-  The Space now serves the last-epoch checkpoint.
-- **The model's own confidence tells you when it is wrong.** Confidence alone separates the failed
-  clips with an AUROC of 0.89 (hand detection rate alone, 0.86). If you only accept the most confident
-  70% of clips, the error on those drops from 0.32 to 0.11; a rule like "flag a clip when confidence
-  is below 0.6 or hands are found in under 30% of frames" flags a third of clips, catches about 95% of
-  the failed ones and leaves 0.10 CER on the rest. Those thresholds were looked at on test, so they
-  are optimistic until I pick them on validation.
+- **The last v5 checkpoint beats the "best" one.** The original run kept the checkpoint with the lowest
+  teacher-forced validation loss (epoch 12 of 30), but from epoch 13 to 30 that loss rose slightly while
+  the decoded text kept improving. The last epoch won on validation among five candidates and is 0.013
+  better on test (better for 12 of 14 signers). The Space serves it.
+- **A shorter-output bias in beam search helps.** Validation CER fell steadily as the length penalty went
+  from 0.6 to 0.0 (0.282 to 0.270). On test that is another 0.015 (0.321 to 0.307, better for 12 of 14
+  signers, paired interval -0.023 to -0.007), and 0.027 better than the first deployed checkpoint (13 of
+  14 signers). It fits the failure mode: the made-up phrases are longer than what was signed.
+- **The model's own confidence tells you when it is wrong.** I fitted a rule on validation only: flag a
+  clip when confidence is below 0.75 or hands are found in under 30% of frames. On test that flags 40% of
+  clips, catches 98.6% of the badly failed ones (CER 0.9 or more) and leaves a CER of 0.059 on the clips
+  it accepts, against 0.307 overall. The two signals on their own separate failures with an AUROC of 0.89
+  (confidence) and 0.86 (hand rate).
+
+The length penalty and the flag rule are not deployed yet; the Space still decodes with 0.6 and only
+warns on hand rate.
 
 ## Setup
 

@@ -1,0 +1,21 @@
+{
+  "note": "paired per-signer differences on the same 3000 test clips (negative = first is better)",
+  "last_lp0.0_vs_last_lp0.6": {
+    "mean_diff": -0.0145,
+    "ci95": [
+      -0.0231,
+      -0.0071
+    ],
+    "signers_better": 12,
+    "signers": 14
+  },
+  "last_lp0.0_vs_v5_best_lp0.6_as_first_deployed": {
+    "mean_diff": -0.0274,
+    "ci95": [
+      -0.0408,
+      -0.0155
+    ],
+    "signers_better": 13,
+    "signers": 14
+  }
+}

@@ -51,6 +51,29 @@ def test_inference_function_is_wrapped_by_spaces_gpu(tmp_path):
     assert (stage / "wrapped.txt").read_text() == "predict"
 
 
+def test_staged_app_imports_without_the_packages_the_space_does_not_install(tmp_path):
+    pytest.importorskip("gradio")
+    stage = build_staging(tmp_path / "space")
+    blocker = """
+import sys
+
+# gradio and huggingface_hub already bring pandas, tqdm and fastapi; these four are not installed there
+NOT_ON_THE_SPACE = {"editdistance", "mlflow", "onnxruntime", "prometheus_client"}
+
+
+class Block:
+    def find_spec(self, name, path=None, target=None):
+        if name.split(".")[0] in NOT_ON_THE_SPACE:
+            raise ImportError("not installed on the Space: " + name)
+
+
+sys.meta_path.insert(0, Block())
+import app
+"""
+    out = subprocess.run([sys.executable, "-c", blocker], cwd=stage, capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr[-600:]
+
+
 def test_resolve_checkpoint_order(tmp_path, monkeypatch):
     local = tmp_path / "local.pth"
     local.write_bytes(b"x")

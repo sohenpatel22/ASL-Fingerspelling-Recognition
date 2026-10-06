@@ -60,12 +60,17 @@ def test_app_warns_when_hands_are_rarely_detected(monkeypatch):
     finally:
         sys.path.remove("app")
 
-    fake = SimpleNamespace(text="hello", confidence=0.7, n_frames=40)
-    monkeypatch.setattr(asl_app, "predict", lambda landmarks: fake)
-    for rate, warned in ((0.1, True), (0.9, False)):
+    for rate, confidence, expected in (
+        (0.1, 0.9, "your hands were only detected"),
+        (0.9, 0.5, "not confident"),
+        (0.9, 0.9, None),
+    ):
+        fake = SimpleNamespace(text="hello", confidence=confidence, n_frames=40)
+        monkeypatch.setattr(asl_app, "predict", lambda landmarks, f=fake: f)
         monkeypatch.setattr(asl_app, "extract_landmarks", lambda path, r=rate: (np.zeros((40, 84)), r))
         summary, _ = asl_app.translate("clip.mp4", "None", False)
-        assert summary.startswith("Warning") is warned and "hello" in summary
+        assert "hello" in summary
+        assert (expected in summary) if expected else not summary.startswith("Warning")
 
 
 def _flag_records(seed, n=400):
@@ -90,3 +95,17 @@ def test_flag_rule_is_fitted_on_one_set_and_helps_on_another():
     assert held_out["caught_catastrophic"] > 0.8
     with pytest.raises(ValueError):
         pick_flag_rule(_flag_records(0), max_flagged=0.0)
+
+
+def test_flag_reason_prefers_hand_visibility_and_follows_env_overrides(monkeypatch):
+    from asl.gating import DEFAULT_MIN_CONFIDENCE, flag_reason
+
+    monkeypatch.delenv("ASL_MIN_HAND_RATE", raising=False)
+    monkeypatch.delenv("ASL_MIN_CONFIDENCE", raising=False)
+    assert flag_reason(0.99, 0.1) == "low_hand_visibility"
+    assert flag_reason(0.1, 0.1) == "low_hand_visibility"  # hands first: low confidence is a consequence
+    assert flag_reason(DEFAULT_MIN_CONFIDENCE - 0.01, 0.9) == "low_confidence"
+    assert flag_reason(DEFAULT_MIN_CONFIDENCE + 0.01, 0.9) is None
+    assert flag_reason(0.1, None) == "low_confidence"  # unknown hand rate (landmark input) is not an error
+    monkeypatch.setenv("ASL_MIN_CONFIDENCE", "0.3")
+    assert flag_reason(0.5, 0.9) is None

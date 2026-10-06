@@ -121,3 +121,32 @@ def test_low_hand_visibility_is_flagged_and_counted(client, monkeypatch):
     assert "asl_low_visibility_total 1.0" in client.get("/metrics").text
     plain = client.post("/predict/landmarks", json={"landmarks": _landmarks().tolist()}).json()
     assert plain["low_hand_visibility"] is False  # unknown detection rate is never flagged
+
+
+def test_flagged_predictions_carry_a_reason_and_are_counted(client, monkeypatch):
+    monkeypatch.setattr("asl.video.extract_landmarks", lambda path: (_landmarks(40), 0.9))
+    files = {"video": ("clip.mp4", b"x", "video/mp4")}
+    monkeypatch.setenv("ASL_MIN_CONFIDENCE", "0.0")
+    assert client.post("/predict", files=files).json()["flag_reason"] is None
+    monkeypatch.setenv("ASL_MIN_CONFIDENCE", "1.1")  # nothing can be that confident
+    body = client.post("/predict", files=files).json()
+    assert body["flagged"] is True and body["flag_reason"] == "low_confidence"
+    assert 'asl_flagged_total{reason="low_confidence"} 1.0' in client.get("/metrics").text
+
+
+def test_default_predictor_uses_the_deployed_length_penalty(
+    tmp_path, tiny_cfg, tiny_model, vocab, monkeypatch
+):
+    from asl.checkpoint import save_checkpoint
+    from asl.infer import DEPLOY_LENGTH_PENALTY
+
+    ckpt = save_checkpoint(tmp_path / "m.pth", tiny_model, tiny_cfg.model, vocab, tiny_cfg.decode)
+    monkeypatch.setenv("ASL_CHECKPOINT", str(ckpt))
+    monkeypatch.delenv("ASL_LENGTH_PENALTY", raising=False)
+    monkeypatch.delenv("ASL_ONNX_DIR", raising=False)
+    monkeypatch.delenv("ASL_MODEL_URI", raising=False)
+    predictor, _ = serve.load_default_predictor()
+    assert tiny_cfg.decode.length_penalty != DEPLOY_LENGTH_PENALTY  # the checkpoint says 0.6
+    assert predictor.decode_cfg.length_penalty == DEPLOY_LENGTH_PENALTY
+    monkeypatch.setenv("ASL_LENGTH_PENALTY", "0.3")
+    assert serve.load_default_predictor()[0].decode_cfg.length_penalty == 0.3

@@ -9,12 +9,30 @@ import numpy as np
 DEFAULT_MIN_HAND_RATE = 0.30
 
 
+# fitted on validation (reports/phase4/tune/flag_rule.json); on test this flagged 40% of clips,
+# caught 98.6% of the badly failed ones and left 0.059 CER on the rest
+DEFAULT_MIN_CONFIDENCE = 0.75
+
+
 def min_hand_rate() -> float:
     return float(os.environ.get("ASL_MIN_HAND_RATE", DEFAULT_MIN_HAND_RATE))
 
 
+def min_confidence() -> float:
+    return float(os.environ.get("ASL_MIN_CONFIDENCE", DEFAULT_MIN_CONFIDENCE))
+
+
 def low_visibility(rate: float | None, threshold: float | None = None) -> bool:
     return rate is not None and rate < (min_hand_rate() if threshold is None else threshold)
+
+
+def flag_reason(confidence: float | None, hand_rate: float | None) -> str | None:
+    # hand visibility first: when the hands were barely seen, low confidence is the expected consequence
+    if low_visibility(hand_rate):
+        return "low_hand_visibility"
+    if confidence is not None and confidence < min_confidence():
+        return "low_confidence"
+    return None
 
 
 def auroc(scores: Sequence[float], positive: Sequence[bool]) -> float:

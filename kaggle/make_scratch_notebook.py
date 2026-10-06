@@ -32,7 +32,7 @@ CELLS = [
                  "Trains the model from random weights with heavy augmentation, CutMix, decoder input masking, "
                  "a joint CTC loss and weight averaging, at 192 frames. Scored with the same protocol as every "
                  "other model (3000 random test clips, beam 5, length penalty 0.0) so it can be compared with "
-                 "the 0.307 of the tuned v5 checkpoint. Set SMOKE = False for the real run."),
+                 "the 0.307 of the tuned v5 checkpoint. SMOKE = True runs a five minute check of every stage first."),
     ("code", '''
 BRANCH = "phase-5-scratch"
 !git clone -q --branch {BRANCH} https://github.com/sohenpatel22/ASL-Fingerspelling-Recognition.git /tmp/repo
@@ -64,7 +64,7 @@ import torch
 print("gpu:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "none", "| cpus:", os.cpu_count())
 '''),
     ("code", '''
-SMOKE = True   # about 10 minutes: tiny slices of every stage; set to False for the real run
+SMOKE = False   # True = about 5 minutes of tiny slices of every stage
 if SMOKE:
     EXTRA, N_VAL, N_TEST = "train.epochs=2 train.epoch_fraction=0.1 train.eval_samples=200 data.use_supplemental=false", 100, 100
 else:

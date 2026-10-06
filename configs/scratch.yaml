@@ -13,7 +13,7 @@ data:
 
 train:
   batch_size: 96
-  epochs: 20
+  epochs: 16
   lr: 5.0e-4
   weight_decay: 0.05
   warmup_epochs: 2

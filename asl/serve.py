@@ -24,8 +24,8 @@ from prometheus_client import (
 from pydantic import BaseModel
 
 from asl.checkpoint import resolve_checkpoint
-from asl.gating import low_visibility
-from asl.infer import Predictor
+from asl.gating import flag_reason, low_visibility
+from asl.infer import Predictor, deploy_length_penalty
 from asl.monitoring import DriftMonitor, landmark_stats
 from asl.video import NoHandsDetected
 
@@ -65,6 +65,9 @@ class Metrics:
         self.low_visibility = Counter(
             "asl_low_visibility_total", "videos where hands were found in too few frames", registry=r
         )
+        self.flagged = Counter(
+            "asl_flagged_total", "predictions flagged as unreliable", ["reason"], registry=r
+        )
         self.drift = Gauge("asl_input_drift_psi", "PSI vs training data", ["feature"], registry=r)
         self.info = Gauge("asl_model_info", "loaded model", ["version"], registry=r)
 
@@ -81,7 +84,9 @@ def load_default_predictor() -> tuple[Predictor, str]:
 
         variant = os.environ.get("ASL_ONNX_VARIANT", "fp32")
         version = os.environ.get("ASL_MODEL_VERSION") or f"onnx-{variant}"
-        return load_onnx_predictor(onnx_dir, variant), version
+        predictor = load_onnx_predictor(onnx_dir, variant)
+        predictor.decode_cfg.length_penalty = deploy_length_penalty()
+        return predictor, version
     model_uri = os.environ.get("ASL_MODEL_URI")
     if model_uri:
         from asl.tracking import download_model
@@ -89,7 +94,8 @@ def load_default_predictor() -> tuple[Predictor, str]:
         path = download_model(os.environ.get("MLFLOW_TRACKING_URI", "sqlite:///mlflow.db"), model_uri)
     else:
         path = resolve_checkpoint(os.environ.get("ASL_CHECKPOINT"))
-    return Predictor.from_checkpoint(path), _model_version(path)
+    predictor = Predictor.from_checkpoint(path, length_penalty=deploy_length_penalty())
+    return predictor, _model_version(path)
 
 
 def create_app(
@@ -152,8 +158,11 @@ def create_app(
             _finish(endpoint, 422, started, request_id, error=str(err))
             raise HTTPException(422, str(err)) from err
         metrics.confidence.observe(pred.confidence)
+        reason = flag_reason(pred.confidence, detection_rate)
         if low_visibility(detection_rate):
             metrics.low_visibility.inc()
+        if reason:
+            metrics.flagged.labels(reason=reason).inc()
         _finish(
             endpoint, 200, started, request_id,
             chars=len(pred.text), confidence=round(pred.confidence, 3),
@@ -161,6 +170,7 @@ def create_app(
         return {
             "text": pred.text, "confidence": pred.confidence, "n_frames": pred.n_frames,
             "hand_detection_rate": detection_rate, "low_hand_visibility": low_visibility(detection_rate),
+            "flagged": reason is not None, "flag_reason": reason,
             "model_version": state["version"],
             "request_id": request_id,
         }

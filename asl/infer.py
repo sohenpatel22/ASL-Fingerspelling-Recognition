@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,14 @@ from asl.features import to_model_input
 from asl.lm import CharNgramLM
 from asl.model import ASLConformerSeq2Seq
 from asl.vocab import Vocab
+
+# chosen on validation (reports/phase4/tune): the made-up phrases are longer than what was signed, so
+# beam search should not reward length; 0.0 beat 0.6 by 0.015 CER on test
+DEPLOY_LENGTH_PENALTY = 0.0
+
+
+def deploy_length_penalty() -> float:
+    return float(os.environ.get("ASL_LENGTH_PENALTY", DEPLOY_LENGTH_PENALTY))
 
 
 @dataclass
@@ -49,11 +58,15 @@ class Predictor:
         allow_unsafe: bool = False,
         lm_path: str | Path | None = None,
         lm_weight: float | None = None,
+        length_penalty: float | None = None,
+        beam_width: int | None = None,
     ) -> Predictor:
         model, vocab, ckpt = load_checkpoint(path, device, allow_unsafe=allow_unsafe)
         decode_cfg = DecodeConfig(
-            beam_width=int(ckpt.get("beam_width", 5)),
-            length_penalty=float(ckpt.get("length_penalty", 0.6)),
+            beam_width=beam_width or int(ckpt.get("beam_width", 5)),
+            length_penalty=(
+                length_penalty if length_penalty is not None else float(ckpt.get("length_penalty", 0.6))
+            ),
             lm_weight=lm_weight or 0.0,
         )
         lm = CharNgramLM.load(lm_path) if lm_path and decode_cfg.lm_weight > 0 else None

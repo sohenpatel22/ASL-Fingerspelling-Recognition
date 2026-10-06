@@ -83,7 +83,7 @@ cd ASL-Fingerspelling-Recognition
 python -m venv .venv
 source .venv/bin/activate        # .venv\Scripts\activate on Windows
 pip install -e ".[dev,serve,mlops,export]"
-pytest                                   # about 110 tests, ~2 minutes on CPU
+pytest                                   # about 140 tests, a few minutes on CPU
 asl-train --config configs/smoke.yaml
 ```
 
@@ -166,6 +166,25 @@ Numbers are in `reports/phase4/`. What I take from them:
 Choices were made on validation only, and test was scored once at the end. Cross-validation
 (`asl-cv`) has to train from scratch because v5 has already seen most signers, so I haven't run it.
 
+### Training from scratch
+
+To answer the fairness question above I trained from random weights with the ingredients the top
+Kaggle solutions used (192 frames, heavy augmentation, CutMix, decoder input masking, a joint CTC
+loss, weight averaging; `configs/scratch.yaml`). One 16 epoch run on a Kaggle T4 took 2h45m:
+
+| model | val CER | test CER (mean per clip) |
+|---|---|---|
+| tuned v5 (deployed) | 0.270 | **0.307** |
+| from scratch, CTC head | 0.300 | 0.332 |
+| from scratch, attention decoder | 0.373 | 0.429 |
+
+It did not beat v5 (the CTC head is 0.022 behind, paired interval 0.009 to 0.035), so nothing
+changed in the app. The curve was still falling when the cosine schedule ran out, and the winners
+trained for about 300 epochs, so I read it as under-trained and not as a failed recipe. The CTC
+head decodes much better than the attention decoder at this length (better for all 14 signers),
+which fits the attention decoder needing more epochs. Details in `reports/phase5/results.md`.
+`scripts/paired.py` makes the paired comparisons.
+
 ## Serving
 
 ```bash
@@ -237,10 +256,10 @@ Grafana comes up on port 3000 with a dashboard already provisioned.
 
 ## CI
 
-`ci.yml` runs on every push: lint, the test suite, a short training run on generated data, an
-evaluation with a metric gate (fails if CER or exact match regress), an ONNX export, and then
-builds the Docker image and hits the running container. `release.yml` pushes the image to GHCR
-when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
+`ci.yml` runs on every push: lint, the test suite on Python 3.10 and 3.12, a short training run
+on generated data, an evaluation with a metric gate (fails if CER or exact match regress), an ONNX
+export, and then builds the Docker image and hits the running container. `release.yml` pushes the
+image to GHCR when a `v*` tag is pushed; I haven't pushed a tag yet, so that one has never run.
 
 ## Free deployment on Hugging Face Spaces
 
@@ -285,22 +304,28 @@ feature and none of the numbers above use it.
 asl/          the package (model, data, training, decoding, eval, inference, serving, export,
               language model, cross-validation, ablations)
 app/          gradio demo
-configs/      default, local_4gb, smoke
+configs/      default, local_4gb, smoke, finetune_v5, scratch
 deploy/       prometheus, alert rules, grafana dashboard
 tests/        pytest
-scripts/      webcam demo, metric gate
-kaggle/       preprocess and GPU training notebooks for Kaggle
+scripts/      webcam demo, metric gate, Space deploy, paired comparison
+kaggle/       notebooks I ran on Kaggle (each has a make_*_notebook.py that generates it)
 notebooks/    v6 fine-tune notebook from Kaggle
-reports/      original course report
+reports/      original course report, phase4/ and phase5/ results
 dvc.yaml      data + training pipeline
 Dockerfile, docker-compose.yml
 ```
 
-## Still to do
+## Where this ends
 
-- a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
+I'm stopping here. The deployed model is the tuned v5 (test CER 0.307), and 40% of clips get flagged
+as unreliable. Things I'd do next if I came back to it:
+
+- a longer from-scratch run (60 or more epochs), since the 16 epoch one was still improving
+- inputs that still carry signal when the hands are not detected (pose and lip landmarks), because
+  that is where most of the remaining error is
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
+- run the docker compose stack end to end and tag a release so `release.yml` runs
 
 ## Limitations
 

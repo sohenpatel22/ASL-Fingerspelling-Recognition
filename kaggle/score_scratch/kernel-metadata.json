@@ -1,0 +1,20 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-score-scratch",
+  "title": "ASL Fingerspelling Score Scratch",
+  "code_file": "score_scratch.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [
+    "sohenpatel/asl-fingerspelling-preprocess",
+    "sohenpatel/asl-fingerspelling-scratch"
+  ],
+  "model_sources": []
+}

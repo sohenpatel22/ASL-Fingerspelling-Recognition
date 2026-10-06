@@ -13,7 +13,7 @@ from tqdm import tqdm
 from asl.checkpoint import load_checkpoint
 from asl.config import DecodeConfig, load_config
 from asl.data import build_datasets
-from asl.decode import beam_search
+from asl.decode import beam_search, ctc_greedy_decode
 from asl.lm import CharNgramLM
 from asl.metrics import bootstrap_ci, cer, corpus_cer, exact_match, group_cer, mean_cer
 from asl.model import ASLConformerSeq2Seq
@@ -32,6 +32,7 @@ def evaluate_dataset(
     max_samples: int | None = None,
     lm: CharNgramLM | None = None,
     sample_seed: int | None = None,
+    decoder: str = "beam",
 ) -> dict[str, Any]:
     model.eval()
     n = len(dataset) if max_samples is None else min(max_samples, len(dataset))
@@ -43,11 +44,15 @@ def evaluate_dataset(
     preds, tgts, confidences, hand_rates = [], [], [], []
     for i in tqdm(order, desc="evaluating"):
         x, y = dataset[i]
-        tokens, score = beam_search(
-            model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty,
-            lm=lm, lm_weight=decode_cfg.lm_weight,
-        )
-        confidences.append(float(np.exp(score / max(len(tokens) - 1, 1))))
+        if decoder == "ctc":
+            tokens = ctc_greedy_decode(model, x.unsqueeze(0).to(device), vocab)[0]
+            confidences.append(None)  # no sequence score from greedy ctc
+        else:
+            tokens, score = beam_search(
+                model, x.to(device), vocab, decode_cfg.beam_width, max_len, decode_cfg.length_penalty,
+                lm=lm, lm_weight=decode_cfg.lm_weight,
+            )
+            confidences.append(float(np.exp(score / max(len(tokens) - 1, 1))))
         hand_rates.append(dataset.hand_rate(i) if hasattr(dataset, "hand_rate") else None)
         preds.append(vocab.decode(tokens))
         tgts.append(vocab.decode(y.tolist()[1:]))
@@ -56,6 +61,7 @@ def evaluate_dataset(
     lo, hi = bootstrap_ci(per_sample)
     result: dict[str, Any] = {
         "n_samples": n,
+        "decoder": decoder,
         "cer": mean_cer(preds, tgts),
         "cer_micro": corpus_cer(preds, tgts),
         "cer_ci95": [lo, hi],
@@ -95,6 +101,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--beam-width", type=int, default=None, help="overrides the checkpoint's value")
     parser.add_argument("--length-penalty", type=float, default=None, help="overrides the checkpoint's value")
     parser.add_argument("--sample-seed", type=int, default=None, help="pick a random subset with this seed")
+    parser.add_argument("--decoder", choices=["beam", "ctc"], default="beam", help="ctc needs a ctc head")
     parser.add_argument("--device", default="auto")
     parser.add_argument("--out", default=None, help="write summary metrics json here")
     parser.add_argument("--details-out", default=None, help="write per-signer cer and examples here")
@@ -122,6 +129,8 @@ def main(argv: list[str] | None = None) -> None:
     lm = CharNgramLM.load(decode_cfg.lm_path) if decode_cfg.lm_path else None
     dataset = build_datasets(cfg, vocab)[args.split]
     max_len = ckpt["_model_config"].max_phrase_len
+    if args.decoder == "ctc" and model.ctc_head is None:
+        raise SystemExit("this checkpoint has no ctc head")
 
     if args.sweep_lm_weights:
         if lm is None:
@@ -142,7 +151,8 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     result = evaluate_dataset(
-        model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm, args.sample_seed
+        model, dataset, vocab, decode_cfg, max_len, device, args.max_samples, lm, args.sample_seed,
+        args.decoder,
     )
     summary = {k: v for k, v in result.items() if k not in ("cer_by_signer", "examples", "predictions")}
     print(json.dumps(summary, indent=2))

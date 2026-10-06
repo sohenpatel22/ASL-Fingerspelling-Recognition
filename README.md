@@ -4,7 +4,7 @@
 [![Hugging Face Space](https://img.shields.io/badge/demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/SohenP/asl-fingerspelling)
 
 **Live demo:** https://huggingface.co/spaces/SohenP/asl-fingerspelling (record or upload a short
-fingerspelling clip; it runs the v5 last-epoch checkpoint, test CER about 0.32, on a free ZeroGPU Space)
+fingerspelling clip; it runs the v5 last-epoch checkpoint, test CER about 0.31, on a free ZeroGPU Space)
 
 Turns a short video of ASL fingerspelling into text. MediaPipe pulls hand landmarks out of the
 video, a Conformer encoder + Transformer decoder reads them, and beam search produces the
@@ -34,8 +34,8 @@ clips from the 14 held-out signers.
 | model | test CER (mean per clip) | test CER (total edits / total characters) |
 |---|---|---|
 | v5 `best` checkpoint (what the Space served before) | 0.334 | 0.322 |
-| v5 last-epoch checkpoint (picked on validation, on the Space now) | 0.321 | 0.308 |
-| **same checkpoint, length penalty 0.0** (picked on validation, not deployed yet) | **0.307** | **0.299** |
+| v5 last-epoch checkpoint, length penalty 0.6 | 0.321 | 0.308 |
+| **same checkpoint, length penalty 0.0** (picked on validation, what the app uses) | **0.307** | **0.299** |
 | v5 fine-tuned again with this repo's trainer | 0.399 | |
 
 The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
@@ -70,8 +70,10 @@ all chosen on validation and then scored once on test:
   it accepts, against 0.307 overall. The two signals on their own separate failures with an AUROC of 0.89
   (confidence) and 0.86 (hand rate).
 
-The length penalty and the flag rule are not deployed yet; the Space still decodes with 0.6 and only
-warns on hand rate.
+The app and the API use both: they decode with a length penalty of 0.0 (`ASL_LENGTH_PENALTY` to change
+it) and flag a prediction as unreliable under that rule (`ASL_MIN_CONFIDENCE`, `ASL_MIN_HAND_RATE`). One
+caveat: hand rate in the app comes from MediaPipe running on your own video, while the threshold was
+fitted on the competition's landmarks, so it may need adjusting.
 
 ## Setup
 
@@ -175,9 +177,9 @@ asl-serve
 JSON, `GET /health` reports the model version and `GET /metrics` is Prometheus. Each request
 also writes a JSON log line. The metrics cover request rate and latency, beam search time,
 prediction confidence, how many frames had a hand in them, and videos with no hands at all.
-Responses also carry `low_hand_visibility` (hands found in under 30% of frames, tunable with
-`ASL_MIN_HAND_RATE`) and there is a matching counter, because that is when the model makes text up. The
-demo prints a warning in the same case.
+Responses also say whether the prediction is `flagged` and why (`flag_reason` is `low_hand_visibility`,
+hands found in under 30% of frames, or `low_confidence`, below 0.75), with matching Prometheus counters,
+because those are the cases where the model makes text up. The demo prints a warning for each.
 
 For drift monitoring, build a reference from the training data and point the service at it:
 
@@ -297,7 +299,6 @@ Dockerfile, docker-compose.yml
 ## Still to do
 
 - a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
-- choose the flag thresholds on validation, then put them in the app (it currently uses hand rate only, 0.30)
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 

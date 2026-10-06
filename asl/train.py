@@ -67,6 +67,16 @@ def make_scheduler(
     return torch.optim.lr_scheduler.LambdaLR(optimizer, factor)
 
 
+def mask_decoder_inputs(y_in: torch.Tensor, prob: float, pad_idx: int) -> torch.Tensor:
+    # hide random previous tokens (replaced by PAD, which attention ignores); the first token stays.
+    # A decoder that cannot lean on its own previous text has to take the evidence from the encoder.
+    if prob <= 0:
+        return y_in
+    drop = torch.rand(y_in.shape, device=y_in.device) < prob
+    drop[:, 0] = False
+    return torch.where(drop, torch.full_like(y_in, pad_idx), y_in)
+
+
 def scheduled_sampling_epsilon(cfg: TrainConfig, epoch: int) -> float:
     if cfg.ss_start_epoch is None or epoch < cfg.ss_start_epoch:
         return 1.0
@@ -180,6 +190,7 @@ class Trainer:
             x, y = x.to(self.device), y.to(self.device)
             y_in, target = y[:, :-1], y[:, 1:].contiguous()
             y_in = self._decoder_inputs(x, y_in, eps)
+            y_in = mask_decoder_inputs(y_in, t.decoder_mask, self.vocab.pad_idx)
             with self._autocast():
                 if t.ctc_weight > 0:
                     logits, ctc_logits = self.model.forward_joint(x, y_in)

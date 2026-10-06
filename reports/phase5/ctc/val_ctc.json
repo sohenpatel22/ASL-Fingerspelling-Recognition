@@ -1,0 +1,17 @@
+{
+  "n_samples": 1000,
+  "decoder": "ctc",
+  "cer": 0.29973669704113576,
+  "cer_micro": 0.2985412190433111,
+  "cer_ci95": [
+    0.28000183714390786,
+    0.31846370111329336
+  ],
+  "exact_match": 0.191,
+  "beam_width": 5,
+  "length_penalty": 0.6,
+  "lm_weight": 0.0,
+  "n_signers": 14,
+  "cer_signer_mean": 0.3360899901694938,
+  "cer_signer_std": 0.19518873357824298
+}

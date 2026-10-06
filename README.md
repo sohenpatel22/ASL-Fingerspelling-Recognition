@@ -4,7 +4,7 @@
 [![Hugging Face Space](https://img.shields.io/badge/demo-Hugging%20Face%20Space-yellow)](https://huggingface.co/spaces/SohenP/asl-fingerspelling)
 
 **Live demo:** https://huggingface.co/spaces/SohenP/asl-fingerspelling (record or upload a short
-fingerspelling clip; it runs the v5 model, test CER 0.44, on a free ZeroGPU Space)
+fingerspelling clip; it runs the v5 last-epoch checkpoint, test CER about 0.31, on a free ZeroGPU Space)
 
 Turns a short video of ASL fingerspelling into text. MediaPipe pulls hand landmarks out of the
 video, a Conformer encoder + Transformer decoder reads them, and beam search produces the
@@ -27,21 +27,53 @@ hand sits in the frame. The model has about 27.8M parameters.
 
 ## Results
 
-Split is 70/15/15 by signer, so val and test signers never show up in training. These numbers
-come from the original notebooks.
+Split is 70/15/15 by signer, so val and test signers never show up in training. The number I trust
+is the one from `reports/phase4/`, scored with beam search on a seeded random sample of 3000 test
+clips from the 14 held-out signers.
 
-| | |
-|---|---|
-| Test CER (beam 5, length penalty 0.6) | 0.43 |
-| v5 baseline test CER | 0.44 |
-| Val CER with beam search | about 0.33 (first 200 val samples) |
+| model | test CER (mean per clip) | test CER (total edits / total characters) |
+|---|---|---|
+| v5 `best` checkpoint (what the Space served before) | 0.334 | 0.322 |
+| v5 last-epoch checkpoint, length penalty 0.6 | 0.321 | 0.308 |
+| **same checkpoint, length penalty 0.0** (picked on validation, what the app uses) | **0.307** | **0.299** |
+| v5 fine-tuned again with this repo's trainer | 0.399 | |
 
-A few caveats. The "CER" printed each epoch in the v6 notebook was computed from teacher-forced
-predictions, so it looks better than the model really is at inference. The trainer in this repo
-early-stops on greedy-decoded CER instead. The test set is only ~15% of the signers, so it's a
-noisy number; `asl-eval` also prints per-signer CER and a bootstrap interval. And adding the 50K
-supplemental sequences only moved test CER by about 0.01, so more data alone isn't going to fix
-this.
+The 0.43 and 0.44 in the original notebooks came from a different evaluation and shouldn't be
+compared with these. For scale: the winning Kaggle solutions scored about 0.81 to 0.82 on the
+competition's metric (roughly 0.18 to 0.19 in these units, same idea as the second column).
+
+What the errors look like (v5, same 3000 clips):
+
+- They are lumpy, not spread out. 36% of clips are decoded perfectly, and the 12% of clips with
+  CER of 0.9 or more account for 72% of all the error.
+- Most of those failures are not near misses. In two thirds of them the model outputs a different
+  *kind* of phrase than the one signed (a phone number comes out as an address) and the output is
+  longer than the target, as if the decoder made up something fluent when it couldn't see the hands.
+- Which signer it is matters more than anything else. Per-signer CER runs from 0.03 to 0.78 and
+  correlates at -0.96 with how often MediaPipe found a hand in that signer's frames (signers with a
+  hand detected in under a third of frames are at 0.6 to 0.8 CER).
+
+Three things came out of following this up (`reports/phase4/candidates/` and `reports/phase4/tune/`),
+all chosen on validation and then scored once on test:
+
+- **The last v5 checkpoint beats the "best" one.** The original run kept the checkpoint with the lowest
+  teacher-forced validation loss (epoch 12 of 30), but from epoch 13 to 30 that loss rose slightly while
+  the decoded text kept improving. The last epoch won on validation among five candidates and is 0.013
+  better on test (better for 12 of 14 signers). The Space serves it.
+- **A shorter-output bias in beam search helps.** Validation CER fell steadily as the length penalty went
+  from 0.6 to 0.0 (0.282 to 0.270). On test that is another 0.015 (0.321 to 0.307, better for 12 of 14
+  signers, paired interval -0.023 to -0.007), and 0.027 better than the first deployed checkpoint (13 of
+  14 signers). It fits the failure mode: the made-up phrases are longer than what was signed.
+- **The model's own confidence tells you when it is wrong.** I fitted a rule on validation only: flag a
+  clip when confidence is below 0.75 or hands are found in under 30% of frames. On test that flags 40% of
+  clips, catches 98.6% of the badly failed ones (CER 0.9 or more) and leaves a CER of 0.059 on the clips
+  it accepts, against 0.307 overall. The two signals on their own separate failures with an AUROC of 0.89
+  (confidence) and 0.86 (hand rate).
+
+The app and the API use both: they decode with a length penalty of 0.0 (`ASL_LENGTH_PENALTY` to change
+it) and flag a prediction as unreliable under that rule (`ASL_MIN_CONFIDENCE`, `ASL_MIN_HAND_RATE`). One
+caveat: hand rate in the app comes from MediaPipe running on your own video, while the threshold was
+fitted on the competition's landmarks, so it may need adjusting.
 
 ## Setup
 
@@ -51,7 +83,7 @@ cd ASL-Fingerspelling-Recognition
 python -m venv .venv
 source .venv/bin/activate        # .venv\Scripts\activate on Windows
 pip install -e ".[dev,serve,mlops,export]"
-pytest
+pytest                                   # about 110 tests, ~2 minutes on CPU
 asl-train --config configs/smoke.yaml
 ```
 
@@ -99,6 +131,41 @@ asl-eval --checkpoint checkpoints/v6/best.pth --out metrics/test.json
 asl-promote --name asl-fingerspelling --metrics metrics/test.json --max-cer 0.45
 ```
 
+## Improving accuracy
+
+I tried five ideas to bring the error down, plus a language model, all switchable in config and unit
+tested. Then I ran an ablation on Kaggle (T4, about 5 hours): every variant warm-started from the v5
+weights and trained on the same signer-independent split, and scored with the protocol above.
+
+| run | what changed | val CER (beam) | test CER (beam) |
+|---|---|---|---|
+| v5 raw | the weights as deployed, no training | | **0.334** |
+| a0_baseline | fine-tune v5 with this repo's trainer and the supplemental data | 0.350 | 0.399 |
+| a1_ctc | + CTC loss next to the attention loss | 0.383 | 0.433 |
+| a2_len128 | 128 frames instead of 64 | 0.407 | 0.450 |
+| a3_velocity | + frame-to-frame velocity features | 0.365 | 0.408 |
+| a4_strong_aug | + rotation, aspect jitter, missed-hand spans | 0.355 | 0.399 |
+| a5_all | all four together | 0.392 | 0.436 |
+
+Numbers are in `reports/phase4/`. What I take from them:
+
+- **Nothing beat the v5 weights, and fine-tuning made them worse.** The plain fine-tune (a0) is worse
+  than raw v5 for all 14 signers (0.065 higher on average, paired CI 0.047 to 0.089). I first read
+  a0 as a fair baseline and only caught this once I scored raw v5 with the same protocol.
+- **The ablation was not a fair test of the ideas.** Every variant started from v5 and only trained
+  for a handful of epochs at a low learning rate, so anything that changes the input (128 frames,
+  velocity) or adds a new head (CTC) had to be adapted onto weights trained for something else. A
+  variant that loses here might still win when trained from scratch. What it does show is that
+  bolting these on to v5 doesn't help.
+- **More training on the same signers overfits.** Validation was best after the first epoch and
+  then drifted worse while training accuracy kept climbing.
+- **The character language model didn't help.** Tuned on validation, the best weight was 0.
+- **The remaining error is mostly a data problem.** See the last bullet under Results: it tracks how
+  often the hand is detected, and the model hallucinates when it can't see one.
+
+Choices were made on validation only, and test was scored once at the end. Cross-validation
+(`asl-cv`) has to train from scratch because v5 has already seen most signers, so I haven't run it.
+
 ## Serving
 
 ```bash
@@ -110,6 +177,9 @@ asl-serve
 JSON, `GET /health` reports the model version and `GET /metrics` is Prometheus. Each request
 also writes a JSON log line. The metrics cover request rate and latency, beam search time,
 prediction confidence, how many frames had a hand in them, and videos with no hands at all.
+Responses also say whether the prediction is `flagged` and why (`flag_reason` is `low_hand_visibility`,
+hands found in under 30% of frames, or `low_confidence`, below 0.75), with matching Prometheus counters,
+because those are the cases where the model makes text up. The demo prints a warning for each.
 
 For drift monitoring, build a reference from the training data and point the service at it:
 
@@ -180,8 +250,8 @@ The demo runs as a Gradio Space on ZeroGPU, which is what a free Hugging Face ac
 minutes of GPU time a day, and one clip takes about a second. The weights live in a Hugging Face
 model repo and the Space downloads them at startup, so nothing big goes in git.
 
-1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer checkpoints/v5/asl_v5_best.pth asl_v5_best.pth`
-   and set the Space variable `ASL_MODEL_FILE=asl_v5_best.pth` (the repo name defaults to
+1. Upload the weights to a model repo (once): `hf upload SohenP/asl-fingerspelling-conformer asl_v5_last.pth asl_v5_last.pth`
+   and set the Space variable `ASL_MODEL_FILE=asl_v5_last.pth` (the repo name defaults to
    `SohenP/asl-fingerspelling-conformer`).
 2. Create a Gradio Space with **ZeroGPU** hardware, or let the script do it:
    `python scripts/deploy_space.py --push --space SohenP/asl-fingerspelling`
@@ -212,12 +282,14 @@ feature and none of the numbers above use it.
 ## Layout
 
 ```
-asl/          the package (model, data, training, decoding, eval, inference, serving, export)
+asl/          the package (model, data, training, decoding, eval, inference, serving, export,
+              language model, cross-validation, ablations)
 app/          gradio demo
 configs/      default, local_4gb, smoke
 deploy/       prometheus, alert rules, grafana dashboard
 tests/        pytest
 scripts/      webcam demo, metric gate
+kaggle/       preprocess and GPU training notebooks for Kaggle
 notebooks/    v6 fine-tune notebook from Kaggle
 reports/      original course report
 dvc.yaml      data + training pipeline
@@ -226,8 +298,8 @@ Dockerfile, docker-compose.yml
 
 ## Still to do
 
-- better accuracy: CTC loss alongside attention, sequences longer than 64 frames, z and velocity
-  features, an n-gram LM for rescoring
+- a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
+- z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
 
 ## Limitations

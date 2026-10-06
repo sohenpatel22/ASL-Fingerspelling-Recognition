@@ -1,0 +1,17 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-preprocess",
+  "title": "ASL Fingerspelling Preprocess",
+  "code_file": "preprocess.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [],
+  "model_sources": []
+}

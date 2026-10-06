@@ -8,7 +8,8 @@ import gradio as gr
 import torch
 
 from asl.checkpoint import resolve_checkpoint
-from asl.infer import Predictor
+from asl.gating import flag_reason
+from asl.infer import Predictor, deploy_length_penalty
 from asl.postprocess import MODES, enhance_text_with_llm
 from asl.video import NoHandsDetected, extract_landmarks
 
@@ -30,7 +31,9 @@ def get_predictor() -> Predictor:
     # on ZeroGPU cuda is emulated at startup, so the model is placed there once and only
     # really runs on the gpu inside the @gpu function below
     device = "cuda" if ON_SPACE or torch.cuda.is_available() else "cpu"
-    return Predictor.from_checkpoint(resolve_checkpoint(), device=device, allow_unsafe=False)
+    return Predictor.from_checkpoint(
+        resolve_checkpoint(), device=device, allow_unsafe=False, length_penalty=deploy_length_penalty()
+    )
 
 
 if ON_SPACE:
@@ -53,6 +56,17 @@ def translate(video_path: str | None, mode: str, speak: bool):
     text = enhance_text_with_llm(pred.text, mode)
     summary = f"{text}\n\n(raw: '{pred.text}' | confidence {pred.confidence:.2f} | "
     summary += f"hands detected in {detection_rate:.0%} of {pred.n_frames} frames)"
+    reason = flag_reason(pred.confidence, detection_rate)
+    if reason == "low_hand_visibility":
+        summary = (
+            f"Warning: your hands were only detected in {detection_rate:.0%} of the frames, so this "
+            "result is probably wrong. Try better lighting and keep both hands in view.\n\n" + summary
+        )
+    elif reason == "low_confidence":
+        summary = (
+            f"Warning: the model is not confident about this one (confidence {pred.confidence:.2f}), "
+            "so the text may be wrong.\n\n" + summary
+        )
 
     audio_path = None
     if speak and text:

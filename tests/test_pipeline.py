@@ -217,3 +217,139 @@ def test_evaluate_dataset_reports_signer_stats(tiny_cfg, vocab, tiny_model):
     )
     assert res["n_samples"] == 10 and 0.0 <= res["cer"] and res["cer_ci95"][0] <= res["cer_ci95"][1]
     assert res["n_signers"] == 5 and len(res["examples"]) == 10
+
+
+def test_transfer_widens_the_input_conv_for_velocity_and_keeps_old_behaviour(tiny_cfg, vocab):
+    plain = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    tiny_cfg.model.velocity = True
+    wide = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    stats = transfer_weights(wide, plain.state_dict())
+    assert stats["skipped"] == 0 and stats["resized"] >= 1
+    old, new = plain.encoder.proj[0].weight, wide.encoder.proj[0].weight
+    torch.testing.assert_close(new[:, : old.shape[1]], old)
+    assert torch.count_nonzero(new[:, old.shape[1] :]) == 0  # velocity channels start silent
+
+
+def test_init_from_accepts_a_hub_path(tmp_path, monkeypatch, tiny_cfg, vocab, tiny_model):
+    from asl.checkpoint import fetch_hub_file, save_checkpoint
+
+    saved = save_checkpoint(tmp_path / "m.pth", tiny_model, tiny_cfg.model, vocab)
+    calls = {}
+
+    def fake_download(repo_id, filename):
+        calls.update(repo_id=repo_id, filename=filename)
+        return str(saved)
+
+    monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_download)
+    assert fetch_hub_file("hf:SohenP/asl-fingerspelling-conformer/asl_v5_best.pth") == saved
+    assert calls == {"repo_id": "SohenP/asl-fingerspelling-conformer", "filename": "asl_v5_best.pth"}
+
+
+def test_corpus_cer_weights_long_phrases_and_evaluation_keeps_every_prediction(tiny_cfg, tiny_model, vocab):
+    from asl.config import DecodeConfig
+    from asl.data import SyntheticDataset
+    from asl.evaluate import evaluate_dataset
+    from asl.metrics import corpus_cer, mean_cer
+
+    # one perfect short phrase and one fully wrong long phrase
+    assert mean_cer(["ab", "xxxxxxxx"], ["ab", "yyyyyyyy"]) == pytest.approx(0.5)
+    assert corpus_cer(["ab", "xxxxxxxx"], ["ab", "yyyyyyyy"]) == pytest.approx(0.8)
+
+    ds = SyntheticDataset(12, vocab, tiny_cfg.model, seed=5)
+    res = evaluate_dataset(tiny_model, ds, vocab, DecodeConfig(2, 0.6), 8, max_samples=9)
+    assert len(res["predictions"]) == 9
+    assert {"signer", "target", "prediction", "cer"} <= set(res["predictions"][0])
+    assert res["cer_micro"] >= 0 and len(res["examples"]) == 9
+
+
+def test_evaluation_records_confidence_and_hand_rate(tmp_path, tiny_cfg, tiny_model, vocab):
+    import pandas as pd
+
+    from asl.config import DecodeConfig, ModelConfig
+    from asl.data import ASLDataset
+    from asl.evaluate import evaluate_dataset
+
+    for seq_id, missing in ((1, 0.0), (2, 0.5)):
+        seq = np.random.default_rng(seq_id).uniform(0.1, 0.9, (20, 84)).astype(np.float32)
+        seq[int(20 * (1 - missing)) :] = 0.0  # the hand disappears for the last part of the clip
+        np.save(tmp_path / f"{seq_id}.npy", seq)
+    df = pd.DataFrame({"sequence_id": [1, 2], "phrase": ["ab", "cd"], "participant_id": [7, 7]})
+    ds = ASLDataset(df, tmp_path, vocab, ModelConfig(**{**tiny_cfg.model.__dict__}))
+    res = evaluate_dataset(tiny_model, ds, vocab, DecodeConfig(2, 0.6), 8)
+    rec = res["predictions"]
+    assert [round(r["hand_rate"], 2) for r in rec] == [1.0, 0.5]
+    assert all(0 < r["confidence"] <= 1 for r in rec)
+
+
+def test_average_weights_is_the_mean_and_keeps_integer_buffers(tiny_cfg, vocab, tmp_path):
+    from asl.checkpoint import average_weights, load_state_dict_only
+    from asl.checkpoint import main as checkpoint_main
+
+    a, b = (ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx) for _ in range(2))
+    avg = average_weights([a.state_dict(), b.state_dict()])
+    key = "decoder.fc_out.weight"
+    torch.testing.assert_close(avg[key], (a.state_dict()[key] + b.state_dict()[key]) / 2)
+    counter = "encoder.proj.1.num_batches_tracked"
+    assert avg[counter].dtype == a.state_dict()[counter].dtype
+
+    torch.save({"model_state_dict": a.state_dict()}, tmp_path / "a.pth")
+    torch.save({"model_state_dict": b.state_dict()}, tmp_path / "b.pth")
+    inputs = [str(tmp_path / "a.pth"), str(tmp_path / "b.pth")]
+    checkpoint_main(["average", *inputs, "--out", str(tmp_path / "s.pth")])
+    torch.testing.assert_close(load_state_dict_only(tmp_path / "s.pth")[key], avg[key])
+    with pytest.raises(ValueError, match="different parameter names"):
+        average_weights([a.state_dict(), {"other": torch.zeros(1)}])
+
+
+def test_ema_trails_the_live_weights_and_is_what_gets_saved(tiny_cfg, vocab, tmp_path):
+    from asl.checkpoint import load_checkpoint
+
+    tiny_cfg.data.synthetic_size = 64
+    tiny_cfg.train.epochs, tiny_cfg.train.ema_decay = 2, 0.9
+    data = build_datasets(tiny_cfg, vocab)
+    model = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+    trainer = Trainer(tiny_cfg, model, vocab, data["train"], data["val"], torch.device("cpu"))
+    start = trainer.ema.decoder.fc_out.weight.clone()
+    trainer.fit()
+    live, avg = trainer.model.decoder.fc_out.weight, trainer.ema.decoder.fc_out.weight
+    assert not torch.equal(avg, live) and not torch.equal(avg, start)
+    saved, _, _ = load_checkpoint(tmp_path / "run" / "last.pth")
+    torch.testing.assert_close(saved.decoder.fc_out.weight, avg.detach())
+
+
+def test_epoch_fraction_shortens_the_epoch(tiny_cfg, vocab):
+    tiny_cfg.data.synthetic_size = 128
+    data = build_datasets(tiny_cfg, vocab)
+    lengths = []
+    for fraction in (1.0, 0.25):
+        tiny_cfg.train.epoch_fraction = fraction
+        model = ASLConformerSeq2Seq(tiny_cfg.model, vocab.vocab_size, vocab.pad_idx)
+        trainer = Trainer(tiny_cfg, model, vocab, data["train"], data["val"], torch.device("cpu"))
+        lengths.append(len(trainer.train_loader))
+    assert lengths == [4, 1]
+
+
+def test_eval_cli_overrides_the_checkpoint_decode_settings(tmp_path, tiny_cfg, tiny_model, vocab):
+    import json
+
+    from asl.checkpoint import save_checkpoint
+    from asl.evaluate import main as eval_main
+
+    ckpt = save_checkpoint(tmp_path / "m.pth", tiny_model, tiny_cfg.model, vocab, tiny_cfg.decode)
+    out = tmp_path / "o.json"
+    base = ["--checkpoint", str(ckpt), "--config", "configs/smoke.yaml", "--max-samples", "4"]
+    base += ["--out", str(out)]
+    eval_main([*base, "--length-penalty", "0.1", "--beam-width", "2"])
+    shown = json.loads(out.read_text())
+    assert (shown["beam_width"], shown["length_penalty"]) == (2, 0.1)
+    eval_main(base)
+    assert json.loads(out.read_text())["length_penalty"] == tiny_cfg.decode.length_penalty
+
+
+def test_scientific_notation_overrides_are_numbers_not_strings():
+    cfg = load_config(None, ["train.lr=1e-5", "train.weight_decay=5E-4", "train.grad_clip=2"])
+    cfg.train.init_from = load_config(None, ["train.init_from=hf:a/b/c.pth"]).train.init_from
+    assert cfg.train.lr == 1e-5 and isinstance(cfg.train.lr, float)
+    assert cfg.train.weight_decay == 5e-4 and cfg.train.grad_clip == 2
+    assert cfg.train.init_from == "hf:a/b/c.pth"
+    assert load_config(None, ["train.scheduler=none"]).train.scheduler == "none"

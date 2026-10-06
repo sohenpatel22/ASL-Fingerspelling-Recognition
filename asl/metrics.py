@@ -16,6 +16,14 @@ def mean_cer(preds: Sequence[str], targets: Sequence[str]) -> float:
     return float(np.mean(vals)) if vals else float("nan")
 
 
+def corpus_cer(preds: Sequence[str], targets: Sequence[str]) -> float:
+    # total edits over total characters: long phrases count for more, like the competition metric
+    total = sum(len(t) for t in targets)
+    if not total:
+        return float("nan")
+    return sum(editdistance.eval(p, t) for p, t in zip(preds, targets, strict=True)) / total
+
+
 def exact_match(preds: Sequence[str], targets: Sequence[str]) -> float:
     if not targets:
         return float("nan")

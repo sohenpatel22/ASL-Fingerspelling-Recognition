@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,8 +12,17 @@ from asl.checkpoint import load_checkpoint
 from asl.config import DecodeConfig, ModelConfig
 from asl.decode import beam_search
 from asl.features import to_model_input
+from asl.lm import CharNgramLM
 from asl.model import ASLConformerSeq2Seq
 from asl.vocab import Vocab
+
+# chosen on validation (reports/phase4/tune): the made-up phrases are longer than what was signed, so
+# beam search should not reward length; 0.0 beat 0.6 by 0.015 CER on test
+DEPLOY_LENGTH_PENALTY = 0.0
+
+
+def deploy_length_penalty() -> float:
+    return float(os.environ.get("ASL_LENGTH_PENALTY", DEPLOY_LENGTH_PENALTY))
 
 
 @dataclass
@@ -31,23 +41,36 @@ class Predictor:
         model_cfg: ModelConfig,
         decode_cfg: DecodeConfig | None = None,
         device: str | torch.device = "cpu",
+        lm: CharNgramLM | None = None,
     ):
         self.model = model.to(device).eval()
         self.vocab = vocab
         self.model_cfg = model_cfg
         self.decode_cfg = decode_cfg or DecodeConfig()
         self.device = torch.device(device)
+        self.lm = lm
 
     @classmethod
     def from_checkpoint(
-        cls, path: str | Path, device: str = "cpu", allow_unsafe: bool = False
+        cls,
+        path: str | Path,
+        device: str = "cpu",
+        allow_unsafe: bool = False,
+        lm_path: str | Path | None = None,
+        lm_weight: float | None = None,
+        length_penalty: float | None = None,
+        beam_width: int | None = None,
     ) -> Predictor:
         model, vocab, ckpt = load_checkpoint(path, device, allow_unsafe=allow_unsafe)
         decode_cfg = DecodeConfig(
-            beam_width=int(ckpt.get("beam_width", 5)),
-            length_penalty=float(ckpt.get("length_penalty", 0.6)),
+            beam_width=beam_width or int(ckpt.get("beam_width", 5)),
+            length_penalty=(
+                length_penalty if length_penalty is not None else float(ckpt.get("length_penalty", 0.6))
+            ),
+            lm_weight=lm_weight or 0.0,
         )
-        return cls(model, vocab, ckpt["_model_config"], decode_cfg, device)
+        lm = CharNgramLM.load(lm_path) if lm_path and decode_cfg.lm_weight > 0 else None
+        return cls(model, vocab, ckpt["_model_config"], decode_cfg, device, lm)
 
     @torch.no_grad()
     def predict_landmarks(self, landmarks: np.ndarray) -> Prediction:
@@ -56,7 +79,7 @@ class Predictor:
             raise ValueError(
                 f"expected a non-empty (T, {self.model_cfg.feature_size}) array, got {landmarks.shape}"
             )
-        x = torch.from_numpy(to_model_input(landmarks, self.model_cfg.max_seq_len))
+        x = torch.from_numpy(to_model_input(landmarks, self.model_cfg.max_seq_len, self.model_cfg.velocity))
         tokens, score = beam_search(
             self.model,
             x.to(self.device),
@@ -64,6 +87,8 @@ class Predictor:
             beam_width=self.decode_cfg.beam_width,
             max_len=self.model_cfg.max_phrase_len,
             length_penalty=self.decode_cfg.length_penalty,
+            lm=self.lm,
+            lm_weight=self.decode_cfg.lm_weight,
         )
         n_tokens = max(len(tokens) - 1, 1)
         return Prediction(

@@ -130,7 +130,11 @@ def transfer_weights(model: ASLConformerSeq2Seq, state: dict[str, torch.Tensor])
         elif target[name].shape == tensor.shape:
             target[name].copy_(tensor)
             stats["copied"] += 1
-        elif "fc_out" in name or "embed" in name:
+        elif "fc_out" in name or "embed" in name or name == "encoder.proj.0.weight":
+            # new vocab rows or new input channels (velocity) start from their fresh init, except the
+            # input conv where the extra channels start at zero so the old behaviour is preserved
+            if name == "encoder.proj.0.weight":
+                target[name].zero_()
             slices = tuple(slice(0, min(a, b)) for a, b in zip(tensor.shape, target[name].shape, strict=True))
             target[name][slices].copy_(tensor[slices])
             stats["resized"] += 1
@@ -138,6 +142,21 @@ def transfer_weights(model: ASLConformerSeq2Seq, state: dict[str, torch.Tensor])
             stats["skipped"] += 1
     model.load_state_dict(target)
     return stats
+
+
+def average_weights(states: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
+    # plain mean of floating point tensors (a "checkpoint soup"); integer buffers keep the first value
+    keys = set(states[0])
+    if any(set(s) != keys for s in states):
+        raise ValueError("checkpoints have different parameter names")
+    out = {}
+    for name in states[0]:
+        first = states[0][name]
+        if first.is_floating_point():
+            out[name] = torch.stack([s[name].float() for s in states]).mean(0).to(first.dtype)
+        else:
+            out[name] = first.clone()
+    return out
 
 
 def convert_checkpoint(src: str | Path, dst: str | Path) -> Path:
@@ -150,6 +169,14 @@ def convert_checkpoint(src: str | Path, dst: str | Path) -> Path:
         plain.pop("idx_to_char")
     torch.save(plain, dst)
     return Path(dst)
+
+
+def fetch_hub_file(spec: str) -> Path:
+    # "hf:user/repo/filename.pth" -> local path of the downloaded file
+    from huggingface_hub import hf_hub_download
+
+    repo_id, _, filename = spec.removeprefix("hf:").rpartition("/")
+    return Path(hf_hub_download(repo_id=repo_id, filename=filename))
 
 
 def resolve_checkpoint(
@@ -173,9 +200,17 @@ def main(argv: list[str] | None = None) -> None:
     conv = sub.add_parser("convert", help="convert a trusted legacy checkpoint to a safe format")
     conv.add_argument("src")
     conv.add_argument("dst")
+    avg = sub.add_parser("average", help="average the weights of several checkpoints")
+    avg.add_argument("paths", nargs="+")
+    avg.add_argument("--out", required=True)
+    avg.add_argument("--allow-unsafe", action="store_true")
     args = parser.parse_args(argv)
     if args.cmd == "convert":
         print(f"wrote {convert_checkpoint(args.src, args.dst)}")
+    elif args.cmd == "average":
+        states = [load_state_dict_only(p, args.allow_unsafe) for p in args.paths]
+        torch.save({"model_state_dict": average_weights(states)}, args.out)
+        print(f"averaged {len(states)} checkpoints -> {args.out}")
 
 
 if __name__ == "__main__":

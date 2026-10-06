@@ -1,0 +1,17 @@
+# fine-tune from the v5 weights on the hub; the ablations in asl-ablate start from this
+model:
+  dropout: 0.25
+
+data:
+  use_supplemental: true
+  split_seed: 42
+
+train:
+  batch_size: 96
+  epochs: 12
+  lr: 5.0e-5
+  warmup_epochs: 1
+  label_smoothing: 0.1
+  patience: 5
+  eval_samples: 1000
+  init_from: hf:SohenP/asl-fingerspelling-conformer/asl_v5_best.pth

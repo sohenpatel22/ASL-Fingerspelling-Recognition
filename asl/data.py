@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import ConcatDataset, Dataset
 
 from asl.config import Config, DataConfig, ModelConfig
-from asl.features import augment, resample_or_pad, wrist_normalize
+from asl.features import augment, fit_length, wrist_normalize
 from asl.vocab import Vocab
 
 _LH_X = [f"x_left_hand_{i}" for i in range(21)]
@@ -38,6 +38,23 @@ def participant_split(
     )
 
 
+def participant_folds(meta: pd.DataFrame, k: int, seed: int = 42) -> list[set]:
+    participants = meta["participant_id"].unique()
+    np.random.RandomState(seed).shuffle(participants)
+    return [set(chunk) for chunk in np.array_split(participants, k)]
+
+
+def fold_split(
+    meta: pd.DataFrame, k: int, fold: int, seed: int = 42
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    # test = this fold, validation = the next one, train = everything else (all by signer)
+    folds = participant_folds(meta, k, seed)
+    test_p, val_p = folds[fold % k], folds[(fold + 1) % k]
+    pick = lambda mask: meta[mask].reset_index(drop=True)  # noqa: E731
+    in_test, in_val = meta["participant_id"].isin(test_p), meta["participant_id"].isin(val_p)
+    return pick(~in_test & ~in_val), pick(in_val), pick(in_test)
+
+
 class ASLDataset(Dataset):
 
     def __init__(
@@ -47,12 +64,20 @@ class ASLDataset(Dataset):
         vocab: Vocab,
         model_cfg: ModelConfig,
         augment_data: bool = False,
+        strong_augment: bool = False,
     ):
-        self.df = df.reset_index(drop=True)
         self.npy_dir = Path(npy_dir)
+        # a few sequences in the metadata never made it out of the parquet files; drop them up front
+        # instead of failing halfway through an epoch
+        on_disk = {int(f.stem) for f in self.npy_dir.glob("*.npy")}
+        keep = df["sequence_id"].astype(int).isin(on_disk)
+        if not keep.all():
+            print(f"{self.npy_dir.name}: skipping {int((~keep).sum())} sequences with no .npy file")
+        self.df = df[keep].reset_index(drop=True)
         self.vocab = vocab
         self.cfg = model_cfg
         self.augment = augment_data
+        self.strong = strong_augment
         self._rng: tuple[int, np.random.Generator] | None = None
 
     def __len__(self) -> int:
@@ -65,12 +90,17 @@ class ASLDataset(Dataset):
             self._rng = (pid, np.random.default_rng(torch.initial_seed() % (2**32) + pid))
         return self._rng[1]
 
+    def hand_rate(self, i: int) -> float:
+        # share of the clip's real frames where at least one hand was detected
+        seq = np.load(self.npy_dir / f"{self.df.iloc[i]['sequence_id']}.npy")
+        return float((seq != 0).any(axis=1).mean())
+
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
         row = self.df.iloc[i]
         seq = np.load(self.npy_dir / f"{row['sequence_id']}.npy").astype(np.float32)
         if self.augment:
-            seq = augment(seq, self._get_rng())
-        seq = resample_or_pad(seq, self.cfg.max_seq_len)
+            seq = augment(seq, self._get_rng(), self.strong)
+        seq = fit_length(seq, self.cfg.max_seq_len, self.cfg.velocity)
         x = torch.from_numpy(np.ascontiguousarray(seq.T)).float()
         y = torch.tensor(
             self.vocab.encode(str(row["phrase"]), self.cfg.max_phrase_len), dtype=torch.long
@@ -99,6 +129,9 @@ class SyntheticDataset(Dataset):
     def __len__(self) -> int:
         return self.n
 
+    def hand_rate(self, i: int) -> float:
+        return 1.0
+
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
         phrase = self.df.loc[i, "phrase"]
         rng = np.random.default_rng(self.seed * 100_003 + i + 7)
@@ -107,7 +140,7 @@ class SyntheticDataset(Dataset):
             for c in phrase
             for _ in range(4)
         ]
-        seq = resample_or_pad(np.asarray(frames, dtype=np.float32), self.cfg.max_seq_len)
+        seq = fit_length(np.asarray(frames, dtype=np.float32), self.cfg.max_seq_len, self.cfg.velocity)
         y = torch.tensor(self.vocab.encode(phrase, self.cfg.max_phrase_len), dtype=torch.long)
         return torch.from_numpy(np.ascontiguousarray(seq.T)).float(), y
 
@@ -124,11 +157,15 @@ def build_datasets(cfg: Config, vocab: Vocab) -> dict[str, Dataset]:
 
     comp = Path(d.comp_dir)
     train_meta = pd.read_csv(comp / "train.csv")
-    tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
-    train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, augment_data=True)]
+    if d.cv_folds > 0:
+        tr, va, te = fold_split(train_meta, d.cv_folds, d.cv_fold, d.split_seed)
+    else:
+        tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
+    aug = {"augment_data": True, "strong_augment": d.augment == "strong"}
+    train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, **aug)]
     if d.use_supplemental:
         supp = pd.read_csv(comp / "supplemental_metadata.csv")
-        train_parts.append(ASLDataset(supp, d.npy_supp, vocab, m, augment_data=True))
+        train_parts.append(ASLDataset(supp, d.npy_supp, vocab, m, **aug))
     return {
         "train": ConcatDataset(train_parts) if len(train_parts) > 1 else train_parts[0],
         "val": ASLDataset(va, d.npy_train, vocab, m),

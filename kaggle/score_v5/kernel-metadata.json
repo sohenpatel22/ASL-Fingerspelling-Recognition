@@ -1,0 +1,19 @@
+{
+  "id": "sohenpatel/asl-fingerspelling-score-v5",
+  "title": "ASL Fingerspelling Score v5",
+  "code_file": "score_v5.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [
+    "asl-fingerspelling"
+  ],
+  "kernel_sources": [
+    "sohenpatel/asl-fingerspelling-preprocess"
+  ],
+  "model_sources": []
+}

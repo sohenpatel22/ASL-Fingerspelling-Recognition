@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,12 @@ class ModelConfig:
     embed_dim: int = 192
     dropout: float = 0.25
     conv_kernel: int = 31
+    ctc: bool = False  # extra CTC head on the encoder for the joint loss
+    velocity: bool = False  # append frame-to-frame differences to the input features
+
+    @property
+    def input_dim(self) -> int:
+        return self.feature_size * (2 if self.velocity else 1)
 
 
 @dataclass
@@ -29,9 +36,12 @@ class DataConfig:
     npy_train: str = "data/processed/npy_train"
     npy_supp: str = "data/processed/npy_supp"
     use_supplemental: bool = True
+    augment: str = "basic"  # "strong" adds rotation, aspect jitter and missed-hand spans
     val_fraction: float = 0.15
     test_fraction: float = 0.15
     split_seed: int = 42
+    cv_folds: int = 0  # >0 switches to k-fold cross-validation over signers
+    cv_fold: int = 0  # which fold is the test fold (validation is the next one)
     # generated toy data for smoke tests / CI
     synthetic: bool = False
     synthetic_size: int = 512
@@ -48,6 +58,9 @@ class TrainConfig:
     scheduler: str = "cosine"
     min_lr_ratio: float = 0.0
     label_smoothing: float = 0.20
+    ema_decay: float = 0.0  # > 0 keeps a moving average of the weights and evaluates/saves that
+    epoch_fraction: float = 1.0  # < 1 makes each "epoch" a random subset, for finer early stopping
+    ctc_weight: float = 0.0  # 0 = attention loss only; needs model.ctc=true when above 0
     grad_clip: float = 1.0
     num_workers: int = 2
     patience: int = 10
@@ -67,6 +80,8 @@ class TrainConfig:
 class DecodeConfig:
     beam_width: int = 5
     length_penalty: float = 0.6
+    lm_path: str | None = None  # character n-gram LM from asl-lm
+    lm_weight: float = 0.0  # 0 turns the language model off
 
 
 @dataclass
@@ -107,6 +122,17 @@ def _build_section(cls: type, raw: dict[str, Any]) -> Any:
     return cls(**raw)
 
 
+_NUMBER = re.compile(r"[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?")
+
+
+def _parse_value(text: str) -> Any:
+    # yaml reads 1e-5 as a string (it wants 1.0e-5), which is an easy mistake on the command line
+    value = yaml.safe_load(text)
+    if isinstance(value, str) and _NUMBER.fullmatch(value.strip()):
+        return float(value)
+    return value
+
+
 def _set_nested(raw: dict[str, Any], dotted: str, value: Any) -> None:
     keys = dotted.split(".")
     node = raw
@@ -123,7 +149,7 @@ def load_config(path: str | Path | None = None, overrides: list[str] | None = No
         if "=" not in item:
             raise ValueError(f"Override must look like section.key=value, got {item!r}")
         key, value = item.split("=", 1)
-        _set_nested(raw, key.strip(), yaml.safe_load(value))
+        _set_nested(raw, key.strip(), _parse_value(value))
     unknown = set(raw) - set(_SECTIONS)
     if unknown:
         raise KeyError(f"Unknown config sections: {sorted(unknown)}")

@@ -1,0 +1,61 @@
+{
+  "note": "paired per-signer comparison against a0_baseline on the same 14 test signers (bootstrap over signers)",
+  "baseline_cer_by_signer": {
+    "1": 0.7251,
+    "107": 0.181,
+    "135": 0.0522,
+    "169": 0.3825,
+    "176": 0.3764,
+    "20": 0.3695,
+    "25": 0.2336,
+    "43": 0.7039,
+    "59": 0.358,
+    "71": 0.6793,
+    "73": 0.328,
+    "74": 0.4116,
+    "92": 0.9626,
+    "95": 0.1363
+  },
+  "variants": {
+    "a1_ctc": {
+      "mean_diff": 0.0368,
+      "signers_better": 0,
+      "ci95": [
+        0.0255,
+        0.0511
+      ]
+    },
+    "a2_len128": {
+      "mean_diff": 0.0568,
+      "signers_better": 3,
+      "ci95": [
+        0.0276,
+        0.0906
+      ]
+    },
+    "a3_velocity": {
+      "mean_diff": 0.0099,
+      "signers_better": 2,
+      "ci95": [
+        0.0057,
+        0.0145
+      ]
+    },
+    "a4_strong_aug": {
+      "mean_diff": -0.0003,
+      "signers_better": 5,
+      "ci95": [
+        -0.0109,
+        0.0084
+      ]
+    },
+    "a5_all": {
+      "mean_diff": 0.0417,
+      "signers_better": 1,
+      "ci95": [
+        0.0215,
+        0.0645
+      ]
+    }
+  }
+}

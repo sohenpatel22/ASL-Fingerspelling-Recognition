@@ -33,9 +33,25 @@ def resample_or_pad(seq: np.ndarray, max_len: int) -> np.ndarray:
     return seq
 
 
-def to_model_input(seq: np.ndarray, max_len: int) -> np.ndarray:
+def add_velocity(seq: np.ndarray) -> np.ndarray:
+    # frame-to-frame differences appended as extra channels; the first frame gets zero velocity
+    vel = np.diff(seq, axis=0, prepend=seq[:1])
+    return np.concatenate([seq, vel], axis=1).astype(np.float32)
+
+
+def fit_length(seq: np.ndarray, max_len: int, velocity: bool = False) -> np.ndarray:
+    # subsample first, then take differences, so velocity is per model frame and the zero
+    # padding at the end doesn't create a fake spike
+    if len(seq) > max_len:
+        seq = seq[np.linspace(0, len(seq) - 1, max_len, dtype=int)]
+    if velocity:
+        seq = add_velocity(seq)
+    return resample_or_pad(seq, max_len)
+
+
+def to_model_input(seq: np.ndarray, max_len: int, velocity: bool = False) -> np.ndarray:
     seq = np.nan_to_num(np.asarray(seq, dtype=np.float32), nan=0.0, posinf=0.0, neginf=0.0)
-    return resample_or_pad(wrist_normalize(seq), max_len).T.astype(np.float32)
+    return fit_length(wrist_normalize(seq), max_len, velocity).T.astype(np.float32)
 
 
 def hands_to_row(left_xy: np.ndarray | None, right_xy: np.ndarray | None) -> np.ndarray:
@@ -47,7 +63,38 @@ def hands_to_row(left_xy: np.ndarray | None, right_xy: np.ndarray | None) -> np.
     return row
 
 
-def augment(seq: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def rotate(seq: np.ndarray, angle: float) -> np.ndarray:
+    # both hands are wrist-centred, so rotating about the origin turns each hand in place
+    c, s = np.cos(angle), np.sin(angle)
+    out = seq.copy()
+    for off in _HAND_OFFSETS:
+        x = seq[:, off : off + N_LANDMARKS]
+        y = seq[:, off + N_LANDMARKS : off + 2 * N_LANDMARKS]
+        out[:, off : off + N_LANDMARKS] = c * x - s * y
+        out[:, off + N_LANDMARKS : off + 2 * N_LANDMARKS] = s * x + c * y
+    return out
+
+
+def stretch(seq: np.ndarray, sx: float, sy: float) -> np.ndarray:
+    out = seq.copy()
+    for off in _HAND_OFFSETS:
+        out[:, off : off + N_LANDMARKS] *= sx
+        out[:, off + N_LANDMARKS : off + 2 * N_LANDMARKS] *= sy
+    return out
+
+
+def drop_hand_span(seq: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    # pretend one hand was not detected for a few frames, like a missed MediaPipe detection
+    n = len(seq)
+    length = int(rng.integers(2, max(3, min(9, n // 3 + 1))))
+    start = int(rng.integers(0, max(1, n - length + 1)))
+    off = _HAND_OFFSETS[int(rng.integers(2))]
+    out = seq.copy()
+    out[start : start + length, off : off + 2 * N_LANDMARKS] = 0.0
+    return out
+
+
+def augment(seq: np.ndarray, rng: np.random.Generator, strong: bool = False) -> np.ndarray:
     n = len(seq)
 
     if rng.random() < 0.5 and n > 8:
@@ -66,5 +113,13 @@ def augment(seq: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     if rng.random() < 0.4:
         t_new = max(4, int(n * rng.uniform(0.8, 1.2)))
         seq = seq[np.linspace(0, n - 1, t_new, dtype=int)]
+
+    if strong:
+        if rng.random() < 0.5:
+            seq = rotate(seq, np.deg2rad(rng.uniform(-15, 15)))
+        if rng.random() < 0.5:
+            seq = stretch(seq, rng.uniform(0.9, 1.1), rng.uniform(0.9, 1.1))
+        if rng.random() < 0.3 and len(seq) > 6:
+            seq = drop_hand_span(seq, rng)
 
     return seq.astype(np.float32)

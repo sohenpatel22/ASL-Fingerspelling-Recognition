@@ -1,0 +1,8 @@
+{
+ "confidence_min": 0.75,
+ "hand_rate_min": 0.3,
+ "val_flagged_share": 0.35,
+ "val_accepted_cer": 0.059642890473963664,
+ "val_all_cer": 0.2819036800777801,
+ "val_caught_catastrophic": 0.9880952380952381
+}

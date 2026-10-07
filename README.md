@@ -185,6 +185,23 @@ head decodes much better than the attention decoder at this length (better for a
 which fits the attention decoder needing more epochs. Details in `reports/phase5/results.md`.
 `scripts/paired.py` makes the paired comparisons.
 
+### Continuing the scratch run
+
+The 16 epoch curve was still falling, so I restarted from those weights with a fresh schedule
+(`configs/continue.yaml`, early stopping ended it at epoch 26, about 3h40m on a T4).
+
+| model | val CER | test CER (mean per clip) |
+|---|---|---|
+| tuned v5 (deployed) | 0.270 | **0.307** |
+| continued, CTC head | 0.284 | 0.316 |
+| continued, attention decoder | 0.365 | 0.414 |
+
+The CTC head gained 0.017 over the 16 epoch run (better for all 14 signers) and is now 0.008 behind
+v5, but the paired interval (-0.011 to 0.020) includes zero, so it is a tie I can't call, and the
+app still serves v5. The attention decoder barely improved, and I picked the checkpoint with its
+metric instead of the CTC head's, which is a mistake worth noting. Details in
+`reports/phase6/results.md`.
+
 ## Serving
 
 ```bash
@@ -318,7 +335,7 @@ tests/        pytest
 scripts/      webcam demo, metric gate, Space deploy, paired comparison
 kaggle/       notebooks I ran on Kaggle (each has a make_*_notebook.py that generates it)
 notebooks/    v6 fine-tune notebook from Kaggle
-reports/      original course report, phase4/ and phase5/ results
+reports/      original course report, phase4/ to phase6/ results
 dvc.yaml      data + training pipeline
 Dockerfile, docker-compose.yml
 ```
@@ -328,7 +345,7 @@ Dockerfile, docker-compose.yml
 I'm stopping here. The deployed model is the tuned v5 (test CER 0.307), and 40% of clips get flagged
 as unreliable. Things I'd do next if I came back to it:
 
-- a longer from-scratch run (60 or more epochs), since the 16 epoch one was still improving
+- rescoring beam search hypotheses with the CTC head, or averaging it with v5; the CTC head alone is now within noise of v5
 - inputs that still carry signal when the hands are not detected (pose and lip landmarks), because
   that is where most of the remaining error is
 - z coordinates as extra features (needs re-preprocessing)

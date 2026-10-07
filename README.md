@@ -251,8 +251,16 @@ docker compose up        # api + mlflow + prometheus + grafana
 
 The image runs as a non-root user and has a healthcheck. It's about 2.6 GB, mostly PyTorch and
 MediaPipe's dependencies. I built it and ran it against a toy ONNX model, including a video
-upload, but I haven't tried the compose stack yet (mlflow, prometheus and grafana containers).
-Grafana comes up on port 3000 with a dashboard already provisioned.
+upload.
+
+I also ran the whole compose stack: the api (healthy), mlflow, prometheus and grafana all came up
+from `docker compose up -d --build`. I sent 30 requests to `/predict/landmarks`, and Prometheus
+showed the api target as up with the counters and the latency histogram. Every panel of the
+provisioned Grafana dashboard (port 3000, login admin/admin the first time) returned data through
+its Prometheus datasource, the four alert rules loaded, and the MLflow server answered on port 5000.
+It needs `onnx/` from `asl-export` and `monitoring/reference.json` from `asl-reference` to exist
+first, since both are mounted into the api container. The clips were random noise, so the drift
+score was far above the alert level, as it should be for inputs that look nothing like the reference.
 
 ## CI
 
@@ -325,7 +333,7 @@ as unreliable. Things I'd do next if I came back to it:
   that is where most of the remaining error is
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
-- run the docker compose stack end to end and tag a release so `release.yml` runs
+- tag a release so `release.yml` runs
 
 ## Limitations
 

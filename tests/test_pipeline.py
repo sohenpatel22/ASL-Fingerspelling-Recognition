@@ -35,7 +35,7 @@ def test_config_overrides_and_typo_detection():
 
 
 def test_repo_configs_parse():
-    for name in ("default", "smoke", "local_4gb"):
+    for name in ("default", "smoke", "local_4gb", "finetune_v5", "scratch"):
         assert isinstance(load_config(f"configs/{name}.yaml"), Config)
 
 

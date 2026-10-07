@@ -74,3 +74,14 @@ def test_ctc_config_keys_parse():
     cfg = load_config(None, ["model.ctc=true", "model.velocity=true", "train.ctc_weight=0.25"])
     assert cfg.model.ctc and cfg.model.velocity and cfg.train.ctc_weight == 0.25
     assert cfg.model.input_dim == 168
+
+
+def test_evaluate_with_the_ctc_decoder(tiny_cfg, vocab):
+    from asl.evaluate import evaluate_dataset
+
+    cfg = _ctc_cfg(tiny_cfg)
+    model = ASLConformerSeq2Seq(cfg.model, vocab.vocab_size, vocab.pad_idx)
+    data = build_datasets(cfg, vocab)["test"]
+    max_len = cfg.model.max_phrase_len
+    res = evaluate_dataset(model, data, vocab, cfg.decode, max_len, max_samples=6, decoder="ctc")
+    assert res["decoder"] == "ctc" and len(res["predictions"]) == 6

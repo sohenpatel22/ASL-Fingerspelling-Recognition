@@ -83,7 +83,7 @@ cd ASL-Fingerspelling-Recognition
 python -m venv .venv
 source .venv/bin/activate        # .venv\Scripts\activate on Windows
 pip install -e ".[dev,serve,mlops,export]"
-pytest                                   # about 110 tests, ~2 minutes on CPU
+pytest                                   # about 140 tests, a few minutes on CPU
 asl-train --config configs/smoke.yaml
 ```
 
@@ -166,6 +166,25 @@ Numbers are in `reports/phase4/`. What I take from them:
 Choices were made on validation only, and test was scored once at the end. Cross-validation
 (`asl-cv`) has to train from scratch because v5 has already seen most signers, so I haven't run it.
 
+### Training from scratch
+
+To answer the fairness question above I trained from random weights with the ingredients the top
+Kaggle solutions used (192 frames, heavy augmentation, CutMix, decoder input masking, a joint CTC
+loss, weight averaging; `configs/scratch.yaml`). One 16 epoch run on a Kaggle T4 took 2h45m:
+
+| model | val CER | test CER (mean per clip) |
+|---|---|---|
+| tuned v5 (deployed) | 0.270 | **0.307** |
+| from scratch, CTC head | 0.300 | 0.332 |
+| from scratch, attention decoder | 0.373 | 0.429 |
+
+It did not beat v5 (the CTC head is 0.022 behind, paired interval 0.009 to 0.035), so nothing
+changed in the app. The curve was still falling when the cosine schedule ran out, and the winners
+trained for about 300 epochs, so I read it as under-trained and not as a failed recipe. The CTC
+head decodes much better than the attention decoder at this length (better for all 14 signers),
+which fits the attention decoder needing more epochs. Details in `reports/phase5/results.md`.
+`scripts/paired.py` makes the paired comparisons.
+
 ## Serving
 
 ```bash
@@ -232,15 +251,23 @@ docker compose up        # api + mlflow + prometheus + grafana
 
 The image runs as a non-root user and has a healthcheck. It's about 2.6 GB, mostly PyTorch and
 MediaPipe's dependencies. I built it and ran it against a toy ONNX model, including a video
-upload, but I haven't tried the compose stack yet (mlflow, prometheus and grafana containers).
-Grafana comes up on port 3000 with a dashboard already provisioned.
+upload.
+
+I also ran the whole compose stack: the api (healthy), mlflow, prometheus and grafana all came up
+from `docker compose up -d --build`. I sent 30 requests to `/predict/landmarks`, and Prometheus
+showed the api target as up with the counters and the latency histogram. Every panel of the
+provisioned Grafana dashboard (port 3000, login admin/admin the first time) returned data through
+its Prometheus datasource, the four alert rules loaded, and the MLflow server answered on port 5000.
+It needs `onnx/` from `asl-export` and `monitoring/reference.json` from `asl-reference` to exist
+first, since both are mounted into the api container. The clips were random noise, so the drift
+score was far above the alert level, as it should be for inputs that look nothing like the reference.
 
 ## CI
 
-`ci.yml` runs on every push: lint, the test suite, a short training run on generated data, an
-evaluation with a metric gate (fails if CER or exact match regress), an ONNX export, and then
-builds the Docker image and hits the running container. `release.yml` pushes the image to GHCR
-when a `v*` tag is pushed. I haven't seen either run on GitHub yet.
+`ci.yml` runs on every push: lint, the test suite on Python 3.10 and 3.12, a short training run
+on generated data, an evaluation with a metric gate (fails if CER or exact match regress), an ONNX
+export, and then builds the Docker image and hits the running container. `release.yml` pushes the
+image to GHCR when a `v*` tag is pushed; I haven't pushed a tag yet, so that one has never run.
 
 ## Free deployment on Hugging Face Spaces
 
@@ -285,22 +312,28 @@ feature and none of the numbers above use it.
 asl/          the package (model, data, training, decoding, eval, inference, serving, export,
               language model, cross-validation, ablations)
 app/          gradio demo
-configs/      default, local_4gb, smoke
+configs/      default, local_4gb, smoke, finetune_v5, scratch
 deploy/       prometheus, alert rules, grafana dashboard
 tests/        pytest
-scripts/      webcam demo, metric gate
-kaggle/       preprocess and GPU training notebooks for Kaggle
+scripts/      webcam demo, metric gate, Space deploy, paired comparison
+kaggle/       notebooks I ran on Kaggle (each has a make_*_notebook.py that generates it)
 notebooks/    v6 fine-tune notebook from Kaggle
-reports/      original course report
+reports/      original course report, phase4/ and phase5/ results
 dvc.yaml      data + training pipeline
 Dockerfile, docker-compose.yml
 ```
 
-## Still to do
+## Where this ends
 
-- a fair from-scratch test of the ideas above, plus inputs that still carry signal when the hands are not detected (pose and lips landmarks)
+I'm stopping here. The deployed model is the tuned v5 (test CER 0.307), and 40% of clips get flagged
+as unreliable. Things I'd do next if I came back to it:
+
+- a longer from-scratch run (60 or more epochs), since the 16 epoch one was still improving
+- inputs that still carry signal when the hands are not detected (pose and lip landmarks), because
+  that is where most of the remaining error is
 - z coordinates as extra features (needs re-preprocessing)
 - put the FastAPI service somewhere public too (the Space only runs the Gradio demo)
+- tag a release so `release.yml` runs
 
 ## Limitations
 

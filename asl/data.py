@@ -10,7 +10,7 @@ import torch
 from torch.utils.data import ConcatDataset, Dataset
 
 from asl.config import Config, DataConfig, ModelConfig
-from asl.features import augment, fit_length, wrist_normalize
+from asl.features import augment, concat_clips, fit_length, wrist_normalize
 from asl.vocab import Vocab
 
 _LH_X = [f"x_left_hand_{i}" for i in range(21)]
@@ -65,6 +65,8 @@ class ASLDataset(Dataset):
         model_cfg: ModelConfig,
         augment_data: bool = False,
         strong_augment: bool = False,
+        heavy_augment: bool = False,
+        cutmix: float = 0.0,
     ):
         self.npy_dir = Path(npy_dir)
         # a few sequences in the metadata never made it out of the parquet files; drop them up front
@@ -78,6 +80,8 @@ class ASLDataset(Dataset):
         self.cfg = model_cfg
         self.augment = augment_data
         self.strong = strong_augment
+        self.heavy = heavy_augment
+        self.cutmix = cutmix
         self._rng: tuple[int, np.random.Generator] | None = None
 
     def __len__(self) -> int:
@@ -95,16 +99,24 @@ class ASLDataset(Dataset):
         seq = np.load(self.npy_dir / f"{self.df.iloc[i]['sequence_id']}.npy")
         return float((seq != 0).any(axis=1).mean())
 
-    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
+    def _load(self, i: int) -> tuple[np.ndarray, str]:
         row = self.df.iloc[i]
         seq = np.load(self.npy_dir / f"{row['sequence_id']}.npy").astype(np.float32)
         if self.augment:
-            seq = augment(seq, self._get_rng(), self.strong)
+            seq = augment(seq, self._get_rng(), self.strong, self.heavy)
+        return seq, str(row["phrase"])
+
+    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
+        seq, phrase = self._load(i)
+        rng = self._get_rng()
+        if self.augment and self.cutmix > 0 and rng.random() < self.cutmix:
+            other_seq, other_phrase = self._load(int(rng.integers(len(self))))
+            if len(phrase) + len(other_phrase) <= self.cfg.max_phrase_len - 2:
+                seq = concat_clips(seq, other_seq, self.cfg.max_seq_len)
+                phrase = phrase + other_phrase
         seq = fit_length(seq, self.cfg.max_seq_len, self.cfg.velocity)
         x = torch.from_numpy(np.ascontiguousarray(seq.T)).float()
-        y = torch.tensor(
-            self.vocab.encode(str(row["phrase"]), self.cfg.max_phrase_len), dtype=torch.long
-        )
+        y = torch.tensor(self.vocab.encode(phrase, self.cfg.max_phrase_len), dtype=torch.long)
         return x, y
 
 
@@ -161,7 +173,10 @@ def build_datasets(cfg: Config, vocab: Vocab) -> dict[str, Dataset]:
         tr, va, te = fold_split(train_meta, d.cv_folds, d.cv_fold, d.split_seed)
     else:
         tr, va, te = participant_split(train_meta, d.val_fraction, d.test_fraction, d.split_seed)
-    aug = {"augment_data": True, "strong_augment": d.augment == "strong"}
+    aug = {
+        "augment_data": True, "strong_augment": d.augment == "strong",
+        "heavy_augment": d.augment == "heavy", "cutmix": d.cutmix,
+    }
     train_parts: list[Dataset] = [ASLDataset(tr, d.npy_train, vocab, m, **aug)]
     if d.use_supplemental:
         supp = pd.read_csv(comp / "supplemental_metadata.csv")

@@ -1,0 +1,9 @@
+{
+  "mean_diff": 0.109,
+  "ci95": [
+    0.0743,
+    0.147
+  ],
+  "signers_better": 0,
+  "signers": 14
+}
